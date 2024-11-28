@@ -1,0 +1,11 @@
+{
+   "deno.enable": true,
+   "prettier.enable": false,
+   "editor.formatOnSave": true,
+   "[javascript][typescript][javascriptreact][typescriptreact]": {
+      "editor.defaultFormatter": "denoland.vscode-deno"
+   },
+   "[markdown][json][jsonc][css][html][yaml]": {
+      "editor.defaultFormatter": "denoland.vscode-deno"
+   }
+}
