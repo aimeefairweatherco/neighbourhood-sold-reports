@@ -1,0 +1,26 @@
+{
+   "name": "Neighbourhood Sold Report Processor",
+   "exports": {},
+   "version": "0.1.0",
+   "tasks": {
+      "cli": "deno run --allow-read --allow-write --allow-env  --allow-net --allow-ffi packages/cli/bin.ts"
+   },
+   "imports": {
+      "@1password/sdk": "npm:@1password/sdk@^0.1.4",
+      "@clack/prompts": "npm:@clack/prompts@^0.8.1",
+      "@db/sqlite": "jsr:@db/sqlite@^0.12.0",
+      "@michaelhthomas/fluxhtml": "jsr:@michaelhthomas/fluxhtml@^1.1.0",
+      "@std/dotenv": "jsr:@std/dotenv@^0.225.2",
+      "@std/fs": "jsr:@std/fs@^1.0.5",
+      "@std/path": "jsr:@std/path@^1.0.8",
+      "@types/mailparser": "npm:@types/mailparser@^3.4.5",
+      "commander": "npm:commander@^12.1.0",
+      "googleapis": "npm:googleapis@^144.0.0",
+      "mailparser": "npm:mailparser@^3.7.1",
+      "picocolors": "npm:picocolors@^1.1.1",
+      "zod": "npm:zod@^3.23.8"
+   },
+   "fmt": {
+      "indentWidth": 3
+   }
+}
