@@ -1,57 +1,49 @@
-import { sql } from "drizzle-orm";
-import {
-   integer,
-   sqliteTable,
-   text,
-   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { z } from "npm:zod";
 
-export const regions = sqliteTable("regions", {
-   id: integer().primaryKey({
-      autoIncrement: true,
-   }),
-   name: text().notNull(),
-   color: text().notNull(),
+export type RegionInsertSchema = z.infer<typeof regionInsertSchema>;
+export const regionInsertSchema = z.object({
+   id: z.number().positive().optional(),
+   name: z.string(),
+   color: z.string(),
 });
 
-export const insertRegionSchema = createInsertSchema(regions);
-export const selectRegionSchema = createSelectSchema(regions);
-
-export const neighbourhoods = sqliteTable("neighbourhoods", {
-   id: integer().primaryKey({
-      autoIncrement: true,
-   }),
-   nameCode: text("name_code").notNull(),
-   namePretty: text("name_pretty").notNull(),
-   polygonData: text("polygon_data").notNull(),
-   regionId: integer("region_id").references(() => regions.id).notNull(),
-}, (table) => {
-   return {
-      idxNameCode: uniqueIndex("idx_name_code").on(table.nameCode),
-   };
+export type RegionSelectSchema = z.infer<typeof regionSelectSchema>;
+export const regionSelectSchema = regionInsertSchema.extend({
+   id: z.number().positive(),
 });
 
-export const insertNeighbourhoodSchema = createInsertSchema(neighbourhoods);
-export const selectNeighbourhoodSchema = createSelectSchema(neighbourhoods);
-
-export const pdfs = sqliteTable("pdfs", {
-   id: integer().primaryKey({
-      autoIncrement: true,
-   }),
-   year: integer().notNull(),
-   monthName: text("month_name").notNull(),
-   monthNumber: integer("month_number").notNull(),
-   neighbourhoodId: integer("neighbourhood_id").references(() =>
-      neighbourhoods.id
-   ).notNull(),
-   url: text().notNull(),
-}, (table) => {
-   return {
-      idxYearMonthNeighbourhood: uniqueIndex("idx_year_month_neighbourhood").on(
-         table.year,
-         table.monthNumber,
-         table.neighbourhoodId,
-      ),
-   };
+export type NeighourhoodInsertSchema = z.infer<
+   typeof neighbourhoodInsertSchema
+>;
+export const neighbourhoodInsertSchema = z.object({
+   id: z.number().positive().optional(),
+   name_code: z.string(),
+   name_pretty: z.string(),
+   polygon_data: z.string(),
+   region_dd: z.number().positive(),
 });
+
+export type NeighbourhoodSelectSchema = z.infer<
+   typeof neighbourhoodSelectSchema
+>;
+export const neighbourhoodSelectSchema = neighbourhoodInsertSchema.extend({
+   id: z.number().positive(),
+});
+
+export type PdfInsertSchema = z.infer<typeof pdfInsertSchema>;
+export const pdfInsertSchema = z.object({
+   id: z.number().positive().optional(),
+   year: z.number().positive(),
+   month_name: z.string(),
+   month_number: z.number().positive(),
+   neighbourhood_id: z.number().positive(),
+   url: z.string(),
+});
+
+export type PdfSelectSchema = z.infer<typeof pdfInsertSchema>;
+export const pdfSelectSchema = pdfInsertSchema.extend({
+   id: z.number().positive(),
+});
+
+export type PdfUpdateSchema = z.infer<typeof pdfUpdateSchema>;
+export const pdfUpdateSchema = pdfInsertSchema.pick({ url: true });
