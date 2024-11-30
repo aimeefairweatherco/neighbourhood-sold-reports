@@ -1,14 +1,14 @@
-import { google } from "npm:googleapis";
-import type { JWT } from "npm:googleapis/auth";
-import { resolve } from "@std/path";
-import { walkSync } from "@std/fs";
-import { createReadStream } from "node:fs";
-import { intro, log, outro, spinner } from "npm:@clack/prompts";
-import pc from "npm:picocolors";
-import { getAuth } from "../lib/auth.ts";
-import z from "npm:zod";
-import { backup, db, type PdfUrl } from "../lib/db.ts";
-import { Command } from "commander";
+import { google } from 'npm:googleapis';
+import type { JWT } from 'npm:googleapis/auth';
+import { resolve } from '@std/path';
+import { walkSync } from '@std/fs';
+import { createReadStream } from 'node:fs';
+import { intro, log, outro, spinner } from 'npm:@clack/prompts';
+import pc from 'npm:picocolors';
+import { getAuth } from '../lib/auth.ts';
+import z from 'npm:zod';
+import { backup, db, type PdfInsert, RowId } from '../../db/db_old.ts';
+import { Command } from 'commander';
 
 type PDFMetadata = {
    name: string;
@@ -29,17 +29,17 @@ const googleDriveUploadResponse = z.object({
 });
 
 const drive = google.drive({
-   version: "v3",
+   version: 'v3',
 });
 
-const ROOT_FOLDER = "17v4G4S8u2megiehsQXFTyFxnFTDTPLpa";
-const FIELDS = "id, name, webViewLink, size";
+const ROOT_FOLDER = '17v4G4S8u2megiehsQXFTyFxnFTDTPLpa';
+const FIELDS = 'id, name, webViewLink, size';
 const CWD = Deno.cwd();
 const DB = await db();
 
-export const upload = new Command("upload")
-   .description("A CLI for uploading PDFs to Google Drive")
-   .option("-C, --cwd <path>", "path to working directory", CWD)
+export const upload = new Command('upload')
+   .description('A CLI for uploading PDFs to Google Drive')
+   .option('-C, --cwd <path>', 'path to working directory', CWD)
    .action((options, upload: Command) => {
       const cwd: string = options.cwd;
       const args: string[] = upload.args;
@@ -49,19 +49,19 @@ export const upload = new Command("upload")
 
 async function runUpload(cwd: string, args: string[]) {
    try {
-      intro("Welcome to the Google Drive PDF Uploader");
+      intro('Welcome to the Google Drive PDF Uploader');
 
       const s = spinner();
 
-      s.message("Checking for PDFs to upload...");
+      s.message('Checking for PDFs to upload...');
       s.start();
 
-      const pdfDir = resolve(cwd, "data/pdfs");
+      const pdfDir = resolve(cwd, 'data/pdfs');
 
       const pdfMeta = await getPDFMetadata(pdfDir);
 
       s.stop(
-         `[${pc.bold(pc.green("DONE"))}] Found ${
+         `[${pc.bold(pc.green('DONE'))}] Found ${
             pc.cyan(
                pdfMeta.length,
             )
@@ -69,27 +69,26 @@ async function runUpload(cwd: string, args: string[]) {
       );
 
       if (pdfMeta.length === 0) {
-         outro("No PDFs found to upload");
+         outro('No PDFs found to upload');
          Deno.exit(0);
       }
 
-      s.start("Authenticating with Google Drive...");
+      s.start('Authenticating with Google Drive...');
 
       const jwt = await getAuth();
 
-      s.stop(`[${pc.bold(pc.green("DONE"))}] Authenticated with Google Drive`);
+      s.stop(`[${pc.bold(pc.green('DONE'))}] Authenticated with Google Drive`);
 
-      s.message("Checking for existing PDFs on Google Drive...");
+      s.message('Checking for existing PDFs on Google Drive...');
       s.start();
 
       const uploadList = await checkDriveForExisting(pdfMeta, jwt);
-
 
       const overwriteCount = uploadList.filter((file) => file.id).length;
       const uploadCount = uploadList.length - overwriteCount;
 
       s.stop(
-         `[${pc.bold(pc.green("DONE"))}] Checking Google Drive: ${
+         `[${pc.bold(pc.green('DONE'))}] Checking Google Drive: ${
             pc.cyan(
                overwriteCount,
             )
@@ -102,7 +101,7 @@ async function runUpload(cwd: string, args: string[]) {
       for (const file of uploadList) {
          s.message(
             `[${count}/${uploadList.length}] ${
-               file.id ? "Overwriting" : "Uploading"
+               file.id ? 'Overwriting' : 'Uploading'
             } ${pc.cyan(file.name)}`,
          );
 
@@ -111,29 +110,29 @@ async function runUpload(cwd: string, args: string[]) {
       }
 
       s.stop(
-         `[${pc.bold(pc.green("DONE"))}] Uploaded ${
+         `[${pc.bold(pc.green('DONE'))}] Uploaded ${
             pc.cyan(
                uploadList.length,
             )
          } PDFs to Google Drive`,
       );
 
-      s.message("Updating Database");
+      s.message('Updating Database');
       s.start();
       const ops = await updateDB(files);
       s.stop(
-         `[${pc.bold(pc.green("DONE"))}] Updated database ${
+         `[${pc.bold(pc.green('DONE'))}] Updated database ${
             pc.yellow(
-               "[",
+               '[',
             )
          }inserted ${pc.cyan(ops.insertedRows.length)}, updated ${
             pc.cyan(
                ops.updatedRows.length,
             )
-         } ${pc.yellow("]")}`,
+         } ${pc.yellow(']')}`,
       );
 
-      outro("All operations complete");
+      outro('All operations complete');
 
       Deno.exit(0);
    } catch (error) {
@@ -141,7 +140,7 @@ async function runUpload(cwd: string, args: string[]) {
          log.error(error.message);
          console.error(error.stack);
       } else {
-         log.error("An unknown error occurred");
+         log.error('An unknown error occurred');
       }
       DB.close();
       Deno.exit(0);
@@ -163,14 +162,14 @@ async function uploadFile(file: PDFMetadata, jwt: JWT) {
       },
       fields: FIELDS,
       media: {
-         mimeType: "application/pdf",
+         mimeType: 'application/pdf',
          body: createReadStream(file.path),
       },
       auth: jwt,
    });
    const parsed = googleDriveUploadResponse.parse(res);
 
-   parsed.data.webViewLink = parsed.data.webViewLink.split("?")[0];
+   parsed.data.webViewLink = parsed.data.webViewLink.split('?')[0];
 
    return parsed.data;
 }
@@ -184,7 +183,7 @@ async function getPDFMetadata(pdfDir: string): Promise<PDFMetadata[]> {
          includeDirs: false,
       })
    ) {
-      if (file.isFile && file.name.endsWith(".pdf")) {
+      if (file.isFile && file.name.endsWith('.pdf')) {
          pdfMeta.push({
             name: file.name,
             path: file.path,
@@ -202,7 +201,7 @@ async function checkDriveForExisting(
       return files;
    }
 
-   const [year, month, area] = files[0].name.split("__");
+   const [year, month, area] = files[0].name.split('__');
 
    const q =
       `'${ROOT_FOLDER}' in parents and name contains '${year}__${month}__' and mimeType = 'application/pdf'`;
@@ -211,7 +210,7 @@ async function checkDriveForExisting(
       pageSize: 500,
       q,
       fields: `files(${FIELDS})`,
-      spaces: "drive",
+      spaces: 'drive',
       auth: jwt,
    });
 
@@ -250,18 +249,18 @@ function toPrettyName(name: string) {
 
 function getMonthNumber(monthName: string) {
    const months = [
-      "january",
-      "february",
-      "march",
-      "april",
-      "may",
-      "june",
-      "july",
-      "august",
-      "september",
-      "october",
-      "november",
-      "december",
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
    ];
 
    return months.indexOf(monthName.toLowerCase()) + 1;
@@ -274,11 +273,11 @@ async function updateDB(metadata: GoogleDriveFileMetadata[]) {
    const insertedRows: Record<string, any> = [];
 
    const checkStatement = DB.prepare(
-      "SELECT id FROM pdf_urls WHERE year = ? AND month_name = ? AND neighbourhood_id = ?",
+      'SELECT id FROM pdfs WHERE year = ? AND month_name = ? AND neighbourhood_id = ?',
    );
 
    const neighbourhoodsStatement = DB.prepare(
-      "SELECT id, name_code FROM neighbourhoods",
+      'SELECT id, name_code FROM neighbourhoods',
    );
 
    const neighbourhoods = neighbourhoodsStatement.all<{
@@ -289,17 +288,17 @@ async function updateDB(metadata: GoogleDriveFileMetadata[]) {
    neighbourhoodsStatement.finalize();
 
    const updateStatement = DB.prepare(
-      "UPDATE pdf_urls SET url = ? WHERE id = ? RETURNING *",
+      'UPDATE pdfs SET url = ? WHERE id = ? RETURNING *',
    );
 
    const insertStatement = DB.prepare(
-      "INSERT INTO pdf_urls (year, month_name, month_number, neighbourhood_id, url) VALUES (?, ?, ?, ?, ?) RETURNING *",
+      'INSERT INTO pdfs (year, month_name, month_number, neighbourhood_id, url) VALUES (?, ?, ?, ?, ?) RETURNING *',
    );
 
    const runTransaction = DB.transaction((data: GoogleDriveFileMetadata[]) => {
       for (const file of data) {
-         const fileName = file.name.replace(".pdf", "");
-         const [year, month_name, area] = fileName.split("__");
+         const fileName = file.name.replace('.pdf', '');
+         const [year, month_name, area] = fileName.split('__');
 
          const neighbourhood = neighbourhoods.find((n) => n.name_code === area);
 
@@ -310,7 +309,7 @@ async function updateDB(metadata: GoogleDriveFileMetadata[]) {
             );
          }
 
-         const newRow: PdfUrl = {
+         const newRow: PdfInsert = {
             year: parseInt(year),
             month_name,
             month_number: getMonthNumber(month_name),
@@ -318,7 +317,7 @@ async function updateDB(metadata: GoogleDriveFileMetadata[]) {
             url: file.webViewLink,
          };
 
-         const existingRow = checkStatement.all<PdfUrl>(
+         const existingRow = checkStatement.all<RowId>(
             newRow.year,
             newRow.month_name,
             newRow.neighbourhood_id,
@@ -332,7 +331,7 @@ async function updateDB(metadata: GoogleDriveFileMetadata[]) {
          } else {
             // Insert a new row
 
-            const insertedRow = insertStatement.all(
+            const insertedRow = insertStatement.all<PdfInsert>(
                newRow.year,
                newRow.month_name,
                newRow.month_number,

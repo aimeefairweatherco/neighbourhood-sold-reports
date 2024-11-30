@@ -1,26 +1,37 @@
 {
-   "name": "Neighbourhood Sold Report Processor",
-   "exports": {},
-   "version": "0.1.0",
+   "workspace": [
+      "./packages/*"
+   ],
    "tasks": {
-      "cli": "deno run --allow-read --allow-write --allow-env  --allow-net --allow-ffi packages/cli/bin.ts"
+      "cli": "deno run --allow-read --allow-write --allow-env  --allow-net --allow-ffi packages/cli/bin.ts",
+      "db:generate": "deno run --node-modules-dir --allow-env --allow-read --allow-sys --allow-write --allow-run npm:drizzle-kit generate --dialect sqlite --schema ./packages/db/schema.ts --out ./packages/db/migrations",
+      "db:push": "deno run --node-modules-dir --allow-env --allow-read --allow-sys --allow-write --allow-run --allow-net npm:drizzle-kit push"
+   },
+   "fmt": {
+      "indentWidth": 3,
+      "singleQuote": true,
+      "lineWidth": 80
    },
    "imports": {
+      "@/": "./",
       "@1password/sdk": "npm:@1password/sdk@^0.1.4",
-      "@clack/prompts": "npm:@clack/prompts@^0.8.1",
-      "@db/sqlite": "jsr:@db/sqlite@^0.12.0",
+      "@clack/prompts": "npm:@clack/prompts@^0.8.2",
+      "@hono/zod-openapi": "npm:@hono/zod-openapi@^0.18.3",
+      "@libsql/client": "npm:@libsql/client@^0.14.0",
       "@michaelhthomas/fluxhtml": "jsr:@michaelhthomas/fluxhtml@^1.1.0",
       "@std/dotenv": "jsr:@std/dotenv@^0.225.2",
-      "@std/fs": "jsr:@std/fs@^1.0.5",
+      "@std/fs": "jsr:@std/fs@^1.0.6",
       "@std/path": "jsr:@std/path@^1.0.8",
       "@types/mailparser": "npm:@types/mailparser@^3.4.5",
       "commander": "npm:commander@^12.1.0",
+      "drizzle-kit": "npm:drizzle-kit@^0.28.1",
+      "drizzle-orm": "npm:drizzle-orm@^0.36.4",
+      "drizzle-zod": "npm:drizzle-zod@^0.5.1",
       "googleapis": "npm:googleapis@^144.0.0",
-      "mailparser": "npm:mailparser@^3.7.1",
+      "hono": "npm:hono@^4.6.12",
+      "mailparser": "npm:mailparser@^3.7.2",
       "picocolors": "npm:picocolors@^1.1.1",
+      "stoker": "npm:stoker@^1.4.2",
       "zod": "npm:zod@^3.23.8"
-   },
-   "fmt": {
-      "indentWidth": 3
    }
 }

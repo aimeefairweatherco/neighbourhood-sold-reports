@@ -1,12 +1,15 @@
-import { Database } from "@db/sqlite";
-import { copy, ensureDir } from "@std/fs";
-import { basename, resolve } from "@std/path";
+import { Database } from '@db/sqlite';
+import { copy, ensureDir } from '@std/fs';
+import { basename, resolve } from '@std/path';
 
 const cwd = Deno.cwd();
-const dbDir = resolve(cwd, "data/db");
+const dbDir = resolve(cwd, 'data/db');
 
-export type PdfUrl = {
-   id?: number;
+export type RowId = {
+   id: number;
+};
+
+export type PdfInsert = {
    year: number;
    month_name: string;
    month_number: number;
@@ -14,15 +17,33 @@ export type PdfUrl = {
    url: string;
 };
 
+export type PdfRow = PdfInsert & RowId;
+
+export type RegionInsert = {
+   name: string;
+   color: string;
+};
+
+export type RegionRow = RegionInsert & RowId;
+
+export type NeighbourhoodInsert = {
+   name_code: string;
+   name_pretty: string;
+   polygon_data: string;
+   region_id: number;
+};
+
+export type NeighbourhoodRow = NeighbourhoodInsert & RowId;
+
 async function db(create: boolean = false) {
    try {
       if (create) {
          await ensureDir(dbDir);
 
-         const db = new Database(resolve(dbDir, "data.db"), { create: true });
+         const db = new Database(resolve(dbDir, 'data.db'), { create: true });
 
          db.exec(`
-                    CREATE TABLE regions (
+                    CREATE TABLE if not exists regions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
                         color TEXT NOT NULL
@@ -75,7 +96,7 @@ async function db(create: boolean = false) {
          return db;
       }
 
-      return new Database(resolve(dbDir, "data.db"), { create: false });
+      return new Database(resolve(dbDir, 'data.db'), { create: false });
    } catch (e) {
       throw e;
    }
@@ -87,14 +108,14 @@ type LatLng = {
 };
 
 function parseLatLongString(latLongString: string): LatLng[] {
-   let normalized = latLongString.replace(/\),\(/g, "_").replace(/\(/g, "")
-      .replace(/\)/g, "");
+   let normalized = latLongString.replace(/\),\(/g, '_').replace(/\(/g, '')
+      .replace(/\)/g, '');
 
-   if (normalized.endsWith(",")) {
+   if (normalized.endsWith(',')) {
       normalized = normalized.slice(0, -1);
    }
-   return normalized.split("_").map((pair) => {
-      const [lat, long] = pair.split(",");
+   return normalized.split('_').map((pair) => {
+      const [lat, long] = pair.split(',');
       return {
          lat: parseFloat(lat),
          lng: parseFloat(long),
@@ -106,7 +127,7 @@ async function backup() {
    try {
       const database = await db();
       const name = basename(database.path);
-      const backupPath = resolve(dbDir, "backup");
+      const backupPath = resolve(dbDir, 'backup');
       await ensureDir(backupPath);
       const backupFile = resolve(backupPath, name);
 
