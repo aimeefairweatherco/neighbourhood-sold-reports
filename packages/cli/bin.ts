@@ -1,5 +1,5 @@
 #!/usr/bin/env deno
-import pkg from "../../deno.json" with { type: "json" };
+import pkg from "./deno.json" with { type: "json" };
 import { program } from "commander";
 import { upload } from "./commands/upload.ts";
 import { download } from "./commands/download.ts";
