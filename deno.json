@@ -9,6 +9,7 @@
       "@1password/sdk": "npm:@1password/sdk@^0.1.4",
       "@clack/prompts": "npm:@clack/prompts@^0.8.1",
       "@db/sqlite": "jsr:@db/sqlite@^0.12.0",
+      "@libsql/client": "npm:@libsql/client@^0.14.0",
       "@michaelhthomas/fluxhtml": "jsr:@michaelhthomas/fluxhtml@^1.1.0",
       "@std/dotenv": "jsr:@std/dotenv@^0.225.2",
       "@std/fs": "jsr:@std/fs@^1.0.5",
