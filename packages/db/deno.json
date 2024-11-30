@@ -1,0 +1,11 @@
+{
+   "name": "@scope/db",
+   "exports": {
+      ".": "./db.ts",
+      "./db": "./db.ts",
+      "./schema": "./schema.ts"
+   },
+   "imports": {
+      "@libsql/client": "npm:@libsql/client@^0.14.0"
+   }
+}
