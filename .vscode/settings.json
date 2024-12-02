@@ -3,6 +3,9 @@
 	"prettier.enable": true,
 	"eslint.enable": true,
 	"editor.formatOnSave": true,
+	"files.associations": {
+		"*.css": "tailwindcss"
+	},
 	"[javascript]": {
 		"editor.defaultFormatter": "esbenp.prettier-vscode"
 	},
