@@ -4,8 +4,8 @@
 	import type { GoogleMapsMapProps } from '../types.js';
 
 	let {
-		mapId = useId('maps'),
-		config = {
+		id = useId('map'),
+		opts = {
 			zoom: 12,
 			center: { lat: 43.653226, lng: -79.383184 },
 			mapTypeControl: false,
@@ -16,15 +16,19 @@
 		...restProps
 	}: GoogleMapsMapProps = $props();
 
-	function initMap(container: HTMLDivElement) {
-		const map = useGoogleMapsMap({
-			container,
-			mapId,
-			config
+	let mapState = $state<ReturnType<typeof useGoogleMapsMap> | null>(null);
+
+	function mount(mapDiv: HTMLDivElement) {
+		mapState = useGoogleMapsMap({
+			mapId: id || useId('map'),
+			mapDiv,
+			opts
 		});
 	}
 </script>
 
-<div use:initMap id={mapId} {...restProps}>
-	{@render children?.()}
+<div use:mount {id} {...restProps}>
+	{#if mapState?.map}
+		{@render children?.()}
+	{/if}
 </div>

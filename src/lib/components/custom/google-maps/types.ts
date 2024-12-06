@@ -1,6 +1,7 @@
 import { type LoaderOptions } from '@googlemaps/js-api-loader';
 
 import type { WithChildren, BitsDivAttributes } from 'bits-ui';
+import type { GoogleMapsMarkerStates } from './google-maps.svelte';
 
 export type GoogleMapsRootProps = WithChildren<{
 	libraries: NonNullable<LoaderOptions['libraries']>;
@@ -11,6 +12,11 @@ export type GoogleMapsRootProps = WithChildren<{
 
 export type GoogleMapsMapProps = BitsDivAttributes &
 	WithChildren<{
-		mapId?: string;
-		config?: Omit<google.maps.MapOptions, 'mapId' | 'container'>;
+		opts?: google.maps.MapOptions;
 	}>;
+
+export type GoogleMapsMarkerProps = WithChildren<{
+	id?: string;
+	initialState?: GoogleMapsMarkerStates;
+	opts?: google.maps.marker.AdvancedMarkerElementOptions;
+}>;

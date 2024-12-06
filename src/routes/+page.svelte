@@ -11,5 +11,13 @@
 </script>
 
 <div class="w-100[dvw] h-[100dvh] overflow-hidden">
-	<Maps.Root libraries={['maps']}><Maps.Map class="h-full w-full">Hello</Maps.Map></Maps.Root>
+	<Maps.Root libraries={['maps', 'marker']}
+		><Maps.Map class="h-full w-full"
+			><Maps.Marker
+				opts={{
+					position: { lat: 43.730091, lng: -79.399199 }
+				}}
+			></Maps.Marker></Maps.Map
+		></Maps.Root
+	>
 </div>

@@ -1,6 +1,7 @@
 import { createContext } from '$lib/internal/create-context.js';
 import { Loader, type LoaderOptions } from '@googlemaps/js-api-loader';
 import { FiniteStateMachine } from 'runed';
+import { SvelteMap } from 'svelte/reactivity';
 
 type GoogleMapsRootStateProps = {
 	libraries: NonNullable<LoaderOptions['libraries']>;
@@ -28,6 +29,7 @@ export class GoogleMapsRootState {
 	#version: GoogleMapsRootStateProps['version'];
 	#apiKey: NonNullable<GoogleMapsRootStateProps['apiKey']>;
 	#region: GoogleMapsRootStateProps['region'];
+	#loader: Loader;
 	status = apiState;
 
 	constructor(props: GoogleMapsRootStateProps) {
@@ -35,6 +37,16 @@ export class GoogleMapsRootState {
 		this.#version = props.version;
 		this.#apiKey = props.apiKey;
 		this.#region = props.region;
+		this.#loader = new Loader({
+			apiKey: this.#apiKey,
+			version: this.#version,
+			libraries: this.#libraries,
+			region: this.#region
+		});
+
+		$effect(() => {
+			this.loadLibraries();
+		});
 	}
 
 	async loadLibraries() {
@@ -43,27 +55,28 @@ export class GoogleMapsRootState {
 			return false;
 		}
 		try {
-			const loader = new Loader({
-				apiKey: this.#apiKey,
-				version: this.#version,
-				libraries: this.#libraries,
-				region: this.#region
-			});
-
-			const loadLibraries = this.#libraries.map((library) => loader.importLibrary(library));
 			this.status.send('startLoading');
-			await Promise.all(loadLibraries);
+			const results = this.#libraries.map((library) => this.#loader.importLibrary(library));
+
+			await Promise.all(results);
+
 			this.status.send('toggleLoaded');
 		} catch (error) {
 			console.error('Error loading Google Maps libraries:', error);
 			this.status.send('toggleError');
 		}
 	}
+
+	get loadedLibraries() {
+		if (this.status.current !== 'loaded') return;
+
+		return this.#loader.libraries;
+	}
 }
 
 type MapStates = 'idle' | 'zooming' | 'panning';
-type MyEvents = 'toggleZooming' | 'togglePanning';
-const mapState = new FiniteStateMachine<MapStates, MyEvents>('idle', {
+type MapEvents = 'mounted' | 'toggleZooming' | 'togglePanning';
+const mapState = new FiniteStateMachine<MapStates, MapEvents>('idle', {
 	idle: {
 		toggleZooming: 'zooming',
 		togglePanning: 'panning'
@@ -81,24 +94,78 @@ const mapState = new FiniteStateMachine<MapStates, MyEvents>('idle', {
 type LatLng = google.maps.LatLng | google.maps.LatLngLiteral;
 
 type GoogleMapsMapStateProps = {
-	container: HTMLDivElement;
 	mapId: string;
-	config?: Omit<google.maps.MapOptions, 'mapId' | 'container'>;
+	mapDiv: HTMLDivElement;
+	opts?: Omit<google.maps.MapOptions, 'mapId'>;
 };
 
 export class GoogleMapsMapState {
-	#root: GoogleMapsRootState;
-	mapState = mapState;
+	root: GoogleMapsRootState;
 	map: google.maps.Map;
-	markers = $state<google.maps.marker.AdvancedMarkerElement[]>([]);
-	polygons = $state<google.maps.Polygon[]>([]);
+	state = mapState;
+	#markers = new SvelteMap<string, GoogleMapsMarkerState>();
+	#polygons = new SvelteMap<string, GoogleMapsPolygonState>();
 
 	constructor(props: GoogleMapsMapStateProps, root: GoogleMapsRootState) {
-		this.#root = root;
-		if (this.#root.status.current !== 'loaded') {
-			throw new Error('Google Maps libraries are not loaded');
+		this.root = root;
+		if (!this.root.loadedLibraries || !this.root.loadedLibraries.includes('maps')) {
+			throw new Error('Please import the Google Maps "maps" library to use the Map component.');
 		}
-		this.map = new google.maps.Map(props.container, { mapId: props.mapId, ...props.config });
+		this.map = new google.maps.Map(props.mapDiv, { mapId: props.mapId, ...props.opts });
+	}
+
+	addMarker(marker: GoogleMapsMarkerState) {
+		this.#markers.set(marker.id, marker);
+	}
+
+	deleteMarker(id: string) {
+		this.#markers.delete(id);
+	}
+
+	hideMarker(id: string) {
+		this.#markers.get(id)?.hide();
+	}
+
+	showMarker(id: string) {
+		this.#markers.get(id)?.show();
+	}
+
+	clearMarkers() {
+		for (const marker of this.#markers.values()) {
+			marker.delete();
+		}
+		this.#markers.clear();
+	}
+
+	get markers() {
+		return this.#markers;
+	}
+
+	addPolygon(polygon: GoogleMapsPolygonState) {
+		this.#polygons.set(polygon.id, polygon);
+	}
+
+	deletePolygon(id: string) {
+		this.#polygons.delete(id);
+	}
+
+	hidePolygons(id: string) {
+		this.#polygons.get(id)?.hide();
+	}
+
+	showPolygons(id: string) {
+		this.#polygons.get(id)?.show();
+	}
+
+	clearPolygons() {
+		for (const polygon of this.#polygons.values()) {
+			polygon.delete();
+		}
+		this.#polygons.clear();
+	}
+
+	get polygons() {
+		return this.#polygons;
 	}
 
 	smoothZoom = async (targetZoomLevel: number, location?: LatLng) => {
@@ -110,8 +177,7 @@ export class GoogleMapsMapState {
 		} else {
 			await this.#zoomTo(targetZoomLevel);
 		}
-		if (this.mapState.current === 'zooming') this.mapState.send('toggleZooming');
-		console.log('FINAL ZOOM LVL: ', this.map.getZoom());
+		if (this.state.current === 'zooming') this.state.send('toggleZooming');
 	};
 
 	#checkPointInBounds = (point: LatLng) => {
@@ -129,14 +195,13 @@ export class GoogleMapsMapState {
 
 			await this.#zoomTo(currentZoomLevel - 1);
 		}
-		console.log(`POINT IN BOUNDS AT: ${this.map.getZoom()}`);
-		this.mapState.send('togglePanning');
-		console.log(`START PANNING`);
+
+		this.state.send('togglePanning');
+
 		this.map.panTo(location);
 
 		await new Promise<void>((resolve) => {
 			google.maps.event.addListenerOnce(this.map, 'idle', async () => {
-				console.log(`STOP PANNING`);
 				await this.#zoomTo(targetZoomLevel);
 				resolve();
 			});
@@ -168,46 +233,87 @@ export class GoogleMapsMapState {
 	};
 
 	#doZoom = (zoomLevel: number) => {
-		if (this.mapState.current !== 'zooming') this.mapState.send('toggleZooming');
+		if (this.state.current !== 'zooming') this.state.send('toggleZooming');
 		setTimeout(() => {
 			this.map.setZoom(zoomLevel);
 		}, 30);
 	};
 }
 
-/*
-type GoogleMapsMarkerStateProps = {
-    position?: google.maps.marker.AdvancedMarkerElementOptions['position'];
-    options?: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map' | 'position'>;
-}
+export type GoogleMapsMarkerStates = 'hidden' | 'visible';
+type GoogleMapsMarkerEvents = 'hide' | 'show';
+
+type GoogleMapsMarkerStateProps = Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'> & {
+	id: string;
+	initialState: GoogleMapsMarkerStates;
+};
+
 export class GoogleMapsMarkerState {
-    #mapState: GoogleMapsMapState;
-	position: GoogleMapsMarkerStateProps['position'] = $state(null);
-	options: GoogleMapsMarkerStateProps['options'];
+	#root: GoogleMapsRootState;
+	#mapState: GoogleMapsMapState;
+	#id: GoogleMapsMarkerStateProps['id'];
+	marker: google.maps.marker.AdvancedMarkerElement;
+	state: FiniteStateMachine<GoogleMapsMarkerStates, GoogleMapsMarkerEvents>;
 
 	constructor(props: GoogleMapsMarkerStateProps, mapState: GoogleMapsMapState) {
-        this.#mapState = mapState;
-		this.position = props.position;
-		this.options = props.options
+		const { id, initialState, ...opts } = props;
+		this.#mapState = mapState;
+		this.#root = mapState.root;
+		this.#id = id;
+		if (!this.#root.loadedLibraries || !this.#root.loadedLibraries.includes('marker')) {
+			throw new Error(
+				'Please import the Google Maps "markers" library to use the Marker component.'
+			);
+		}
+
+		this.marker = new google.maps.marker.AdvancedMarkerElement(opts);
+		this.state = this.#initStateMachine(initialState);
+
+		this.#mapState.addMarker(this);
+	}
+
+	get id() {
+		return this.#id;
+	}
+
+	get parent() {
+		return this.#mapState;
+	}
+
+	hide() {
+		if (this.state.current === 'hidden') return;
+		this.state.send('hide');
+	}
+
+	show() {
+		if (this.state.current === 'visible') return;
+		this.state.send('show');
+	}
+
+	delete() {
+		this.marker.map = null; // Remove from map
+		this.#mapState.deleteMarker(this.#id);
+	}
+
+	#initStateMachine(initialState: GoogleMapsMarkerStates) {
+		return new FiniteStateMachine<GoogleMapsMarkerStates, GoogleMapsMarkerEvents>(initialState, {
+			hidden: {
+				show: 'visible',
+				_enter: () => {
+					this.marker.map = null;
+				}
+			},
+			visible: {
+				hide: 'hidden',
+				_enter: () => {
+					this.marker.map = this.#mapState.map;
+				}
+			}
+		});
 	}
 }
 
-type GoogleMapsPolygonStateProps = Omit<google.maps.PolygonOptions, 'map'> & {
-    map: GoogleMapsMapState | null;
-    paths: google.maps.PolygonOptions['paths'];
-};
-export class GoogleMapsPolygonState {
-    map: GoogleMapsPolygonStateProps['map'];
-    paths: GoogleMapsPolygonStateProps['paths'];
-    options: GoogleMapsPolygonStateProps['options'];
-
-    constructor(props: GoogleMapsPolygonStateProps) {
-        this.map = props.map;
-        this.paths = props.paths;
-        this.options = props.options
-
-    }
-}
+/*
 
 type GoogleMapsInfoWindowStateProps = {
     map: GoogleMapsMapState | null;
@@ -244,6 +350,9 @@ const [setGoogleMapsRootContext, getGoogleMapsRootContext] =
 const [setGoogleMapsMapContext, getGoogleMapsMapContext] =
 	createContext<GoogleMapsMapState>('Maps.Map');
 
+const [setGoogleMapsMarkerContext, getGoogleMapsMarkerContext] =
+	createContext<GoogleMapsMarkerState>('Maps.Marker');
+
 export function useGoogleMapsRoot(props: GoogleMapsRootStateProps) {
 	return setGoogleMapsRootContext(new GoogleMapsRootState(props));
 }
@@ -251,4 +360,9 @@ export function useGoogleMapsRoot(props: GoogleMapsRootStateProps) {
 export function useGoogleMapsMap(props: GoogleMapsMapStateProps) {
 	const root = getGoogleMapsRootContext();
 	return setGoogleMapsMapContext(new GoogleMapsMapState(props, root));
+}
+
+export function useGoogleMapsMarker(props: GoogleMapsMarkerStateProps) {
+	const map = getGoogleMapsMapContext();
+	return setGoogleMapsMarkerContext(new GoogleMapsMarkerState(props, map));
 }

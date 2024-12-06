@@ -17,13 +17,6 @@
 		region,
 		version
 	});
-
-	onMount(async () => {
-		// Prevent attempting to load the API on the server.
-		//Need access to window object
-
-		googleMapsApi.loadLibraries();
-	});
 </script>
 
 {#if googleMapsApi.status.current === 'loaded'}
