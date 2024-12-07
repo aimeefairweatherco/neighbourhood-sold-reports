@@ -35,25 +35,20 @@
 </script>
 
 <div class="w-100[dvw] h-[100dvh] overflow-hidden">
-	<Maps.Root libraries={['maps', 'marker']}
+	<Maps.Root libraries={['maps']}
 		><Maps.Map class="h-full w-full"
-			><Maps.Marker
+			><Maps.Marker geometry={{ lat: 43.730091, lng: -79.399199 }}></Maps.Marker>
+			<Maps.DataLayer
 				opts={{
-					position: { lat: 43.730091, lng: -79.399199 }
+					style: {
+						fillColor: '#FF0000',
+						fillOpacity: 0.35,
+						strokeWeight: 1
+					}
 				}}
-			></Maps.Marker>
-
-			<Maps.Polygon
-				opts={{
-					paths: poly,
-					strokeColor: '#FF0000',
-					strokeOpacity: 0.8,
-					strokeWeight: 3,
-					fillColor: '#FF0000',
-					fillOpacity: 0.35
-				}}
-				initialState="visible"
-			></Maps.Polygon>
+			>
+				<Maps.Polygon geometry={[poly]}></Maps.Polygon>
+			</Maps.DataLayer>
 		</Maps.Map></Maps.Root
 	>
 </div>

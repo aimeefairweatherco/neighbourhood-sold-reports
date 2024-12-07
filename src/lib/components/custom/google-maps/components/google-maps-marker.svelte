@@ -4,14 +4,15 @@
 	import type { GoogleMapsMarkerProps } from '../types.js';
 
 	let {
-		opts,
+		geometry,
+		attributes = null,
 		visible = $bindable(true),
 		id = useId('marker'),
 		children,
 		...restProps
 	}: GoogleMapsMarkerProps = $props();
 
-	useGoogleMapsMarker({ id, visible, ...opts });
+	useGoogleMapsMarker({ id, visible, geometry, properties: attributes });
 </script>
 
 {@render children?.()}
