@@ -5,13 +5,13 @@
 
 	let {
 		opts,
-		initialState = 'visible',
+		visible = $bindable(true),
 		id = useId('polygon'),
 		children,
 		...restProps
 	}: GoogleMapsPolygonProps = $props();
 
-	useGoogleMapsPolygon({ id, initialState, ...opts });
+	useGoogleMapsPolygon({ id, visible, ...opts });
 </script>
 
 {@render children?.()}

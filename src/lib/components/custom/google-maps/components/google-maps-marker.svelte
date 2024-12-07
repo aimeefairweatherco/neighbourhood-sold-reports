@@ -5,13 +5,13 @@
 
 	let {
 		opts,
-		initialState = 'visible',
+		visible = $bindable(true),
 		id = useId('marker'),
 		children,
 		...restProps
 	}: GoogleMapsMarkerProps = $props();
 
-	useGoogleMapsMarker({ id, initialState, ...opts });
+	useGoogleMapsMarker({ id, visible, ...opts });
 </script>
 
 {@render children?.()}
