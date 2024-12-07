@@ -105,6 +105,7 @@ export class GoogleMapsMapState {
 	state = mapState;
 	#markers = new SvelteMap<string, GoogleMapsMarkerState>();
 	#polygons = new SvelteMap<string, GoogleMapsPolygonState>();
+	#dataLayers = new SvelteMap<string, GoogleMapsDataLayerState>();
 
 	constructor(props: GoogleMapsMapStateProps, root: GoogleMapsRootState) {
 		this.root = root;
@@ -112,6 +113,10 @@ export class GoogleMapsMapState {
 			throw new Error('Please import the Google Maps "maps" library to use the Map component.');
 		}
 		this.map = new google.maps.Map(props.mapDiv, { mapId: props.mapId, ...props.opts });
+	}
+
+	addDataLayer(dataLayer: GoogleMapsDataLayerState) {
+		this.#dataLayers.set(dataLayer.id, dataLayer);
 	}
 
 	addMarker(marker: GoogleMapsMarkerState) {
@@ -240,6 +245,53 @@ export class GoogleMapsMapState {
 	};
 }
 
+type GoogleMapsDataLayerStateProps = google.maps.Data & {
+	id: string;
+};
+
+class GoogleMapsDataLayerState {
+	#root: GoogleMapsRootState;
+	#mapState: GoogleMapsMapState;
+	#id: GoogleMapsDataLayerStateProps['id'];
+	data: google.maps.Data;
+
+	constructor(props: GoogleMapsDataLayerStateProps, mapState: GoogleMapsMapState) {
+		const { id, ...opts } = props;
+		this.#mapState = mapState;
+		this.#root = mapState.root;
+		this.#id = id;
+		if (!this.#root.loadedLibraries || !this.#root.loadedLibraries.includes('maps')) {
+			throw new Error(
+				'Please import the Google Maps "maps" library to use the DataLayer component.'
+			);
+		}
+
+		this.data = new google.maps.Data(opts);
+		this.#mapState.addDataLayer(this);
+	}
+
+	get id() {
+		return this.#id;
+	}
+
+	get parent() {
+		return this.#mapState;
+	}
+
+	hide() {
+		this.dataLayer.setMap(null);
+	}
+
+	show() {
+		this.dataLayer.setMap(this.#mapState.map);
+	}
+
+	delete() {
+		this.dataLayer.setMap(null);
+		this.#mapState.deleteDataLayer(this.#id);
+	}
+}
+
 export type GoogleMapsMarkerStates = 'hidden' | 'visible';
 type GoogleMapsMarkerEvents = 'hide' | 'show';
 
@@ -313,6 +365,75 @@ export class GoogleMapsMarkerState {
 	}
 }
 
+export type GoogleMapsPolygonStates = 'hidden' | 'visible';
+type GoogleMapsPolygonEvents = 'hide' | 'show';
+
+type GoogleMapsPolygonStateProps = google.maps.PolygonOptions & {
+	id: string;
+	initialState: GoogleMapsPolygonStates;
+};
+export class GoogleMapsPolygonState {
+	#root: GoogleMapsRootState;
+	#mapState: GoogleMapsMapState;
+	#id: GoogleMapsPolygonStateProps['id'];
+	polygon: google.maps.Polygon;
+	state: FiniteStateMachine<GoogleMapsPolygonStates, GoogleMapsPolygonEvents>;
+
+	constructor(props: GoogleMapsPolygonStateProps, mapState: GoogleMapsMapState) {
+		const { id, initialState, ...opts } = props;
+		this.#mapState = mapState;
+		this.#root = mapState.root;
+		this.#id = id;
+		if (!this.#root.loadedLibraries || !this.#root.loadedLibraries.includes('marker')) {
+			throw new Error('Please import the Google Maps "maps" library to use the Polygon component.');
+		}
+
+		this.polygon = new google.maps.Polygon(opts);
+		this.state = this.#initStateMachine(initialState);
+		this.#mapState.addPolygon(this);
+	}
+	get id() {
+		return this.#id;
+	}
+
+	get parent() {
+		return this.#mapState;
+	}
+
+	hide() {
+		if (this.state.current === 'hidden') return;
+		this.state.send('hide');
+	}
+
+	show() {
+		if (this.state.current === 'visible') return;
+		this.state.send('show');
+	}
+
+	delete() {
+		this.polygon.setMap(null); // Remove from map
+		this.#mapState.deletePolygon(this.#id);
+	}
+
+	#initStateMachine(initialState: GoogleMapsMarkerStates) {
+		return new FiniteStateMachine<GoogleMapsMarkerStates, GoogleMapsMarkerEvents>(initialState, {
+			hidden: {
+				show: 'visible',
+				_enter: () => {
+					this.polygon.setVisible(false);
+				}
+			},
+			visible: {
+				hide: 'hidden',
+				_enter: () => {
+					this.polygon.setMap(this.#mapState.map);
+					this.polygon.setVisible(true);
+				}
+			}
+		});
+	}
+}
+
 /*
 
 type GoogleMapsInfoWindowStateProps = {
@@ -353,6 +474,9 @@ const [setGoogleMapsMapContext, getGoogleMapsMapContext] =
 const [setGoogleMapsMarkerContext, getGoogleMapsMarkerContext] =
 	createContext<GoogleMapsMarkerState>('Maps.Marker');
 
+const [setGoogleMapsPolygonContext, getGoogleMapsPolygonContext] =
+	createContext<GoogleMapsPolygonState>('Maps.Polygon');
+
 export function useGoogleMapsRoot(props: GoogleMapsRootStateProps) {
 	return setGoogleMapsRootContext(new GoogleMapsRootState(props));
 }
@@ -365,4 +489,9 @@ export function useGoogleMapsMap(props: GoogleMapsMapStateProps) {
 export function useGoogleMapsMarker(props: GoogleMapsMarkerStateProps) {
 	const map = getGoogleMapsMapContext();
 	return setGoogleMapsMarkerContext(new GoogleMapsMarkerState(props, map));
+}
+
+export function useGoogleMapsPolygon(props: GoogleMapsPolygonStateProps) {
+	const map = getGoogleMapsMapContext();
+	return setGoogleMapsPolygonContext(new GoogleMapsPolygonState(props, map));
 }
