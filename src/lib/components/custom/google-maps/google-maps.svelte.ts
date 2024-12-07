@@ -4,8 +4,6 @@ import { FiniteStateMachine } from 'runed';
 import { SvelteMap } from 'svelte/reactivity';
 import type { Expand } from 'svelte-toolbelt';
 import { useId } from '$lib/internal/use-id';
-import type { L } from 'vitest/dist/chunks/reporters.D7Jzd9GS.js';
-import type GoogleMaps from './components/google-maps.svelte';
 
 type GoogleMapsApiLoaderProps = {
 	libraries: NonNullable<LoaderOptions['libraries']>;
@@ -117,6 +115,11 @@ export class GoogleMap {
 	}
 
 	deleteDataLayer(id: string) {
+		const layer = this.dataLayers.get(id);
+		if (!layer) return;
+
+		layer.clearFeatures();
+		layer.data.setMap(null);
 		this.dataLayers.delete(id);
 	}
 
@@ -129,10 +132,9 @@ export class GoogleMap {
 	}
 
 	clearDataLayers() {
-		for (const id of this.dataLayers.values()) {
-			id.delete();
+		for (const id of this.dataLayers.keys()) {
+			this.deleteDataLayer(id);
 		}
-		this.dataLayers.clear();
 	}
 
 	smoothZoom = async (targetZoomLevel: number, location?: LatLng) => {
@@ -289,7 +291,10 @@ class GoogleMapsDataLayer {
 	}
 
 	deleteFeature(id: string) {
+		const feature = this.features.get(id);
+		if (!feature) return;
 		this.features.delete(id);
+		this.data.remove(feature.feature);
 	}
 
 	showFeature(id: string) {
@@ -324,7 +329,6 @@ class GoogleMapsDataLayer {
 	}
 
 	delete() {
-		this.data.setMap(null);
 		this.map.deleteDataLayer(this.#id);
 	}
 }
