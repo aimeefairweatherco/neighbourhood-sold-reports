@@ -1,7 +1,6 @@
 import { type LoaderOptions } from '@googlemaps/js-api-loader';
 import type { Expand } from 'svelte-toolbelt';
 import type { WithChildren, BitsDivAttributes } from 'bits-ui';
-import type { GoogleMapsMarkerFeatureProps } from './google-maps.svelte.js';
 
 export type GoogleMapsRootProps = WithChildren<{
 	libraries: NonNullable<LoaderOptions['libraries']>;
@@ -20,16 +19,25 @@ type SharedProps = {
 	visible?: boolean;
 };
 
-export type GoogleMapsDataLayerProps = Expand<
-	WithChildren<SharedProps & { opts?: Omit<google.maps.Data.DataOptions, 'map'> }>
+type DataLayerProps = Expand<
+	WithChildren<
+		SharedProps & {
+			name?: string;
+		}
+	>
+>;
+
+export type MarkerLayerProps = DataLayerProps;
+export type PolygonLayerProps = Expand<
+	DataLayerProps & { opts?: Omit<google.maps.Data.DataOptions, 'map'> }
 >;
 
 export type GoogleMapsMarkerProps<T extends Record<string, unknown> | null = null> = Expand<
 	WithChildren<
-		SharedProps &
-			Pick<GoogleMapsMarkerFeatureProps<T>, 'geometry'> & {
-				attributes?: T;
-			}
+		SharedProps & {
+			opts?: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'>;
+			attributes?: T;
+		}
 	>
 >;
 

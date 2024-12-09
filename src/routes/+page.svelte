@@ -32,23 +32,22 @@
 		{ lat: 43.810821, lng: -79.242756 },
 		{ lat: 43.812992, lng: -79.243009 }
 	];
+
+	const markerOpts = {
+		position: { lat: 43.730091, lng: -79.399199 }
+	};
 </script>
 
 <div class="w-100[dvw] h-[100dvh] overflow-hidden">
-	<Maps.Root libraries={['maps']}
-		><Maps.Map class="h-full w-full"
-			><Maps.Marker geometry={{ lat: 43.730091, lng: -79.399199 }}></Maps.Marker>
-			<Maps.DataLayer
-				opts={{
-					style: {
-						fillColor: '#FF0000',
-						fillOpacity: 0.35,
-						strokeWeight: 1
-					}
-				}}
-			>
+	<Maps.Root libraries={['maps', 'marker']}
+		><Maps.Map class="h-full w-full">
+			<Maps.MarkerLayer>
+				<Maps.Marker opts={markerOpts}></Maps.Marker>
+			</Maps.MarkerLayer>
+
+			<Maps.PolygonLayer>
 				<Maps.Polygon geometry={[poly]}></Maps.Polygon>
-			</Maps.DataLayer>
+			</Maps.PolygonLayer>
 		</Maps.Map></Maps.Root
 	>
 </div>

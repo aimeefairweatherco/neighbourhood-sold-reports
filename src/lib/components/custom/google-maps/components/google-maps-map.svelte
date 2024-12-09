@@ -28,7 +28,7 @@
 </script>
 
 <div use:mount {id} {...restProps}>
-	{#if mapState?.map}
+	{#if mapState?.googleMap}
 		{@render children?.()}
 	{/if}
 </div>
