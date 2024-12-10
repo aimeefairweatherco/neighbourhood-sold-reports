@@ -4,7 +4,6 @@
 	import type { GoogleMapsPolygonProps } from '../types.js';
 
 	let {
-		attributes = null,
 		geometry,
 		visible = $bindable(true),
 		id = useId('polygon'),
@@ -14,7 +13,11 @@
 
 	const polygon = new google.maps.Data.Polygon(geometry);
 
-	useGoogleMapsPolygon({ id, visible, geometry: polygon, properties: attributes });
+	useGoogleMapsPolygon({
+		id,
+		visible,
+		geometry: polygon
+	});
 </script>
 
 {@render children?.()}

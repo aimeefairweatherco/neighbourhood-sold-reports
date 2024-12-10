@@ -3,7 +3,6 @@ import { Loader, type LoaderOptions } from '@googlemaps/js-api-loader';
 import { FiniteStateMachine } from 'runed';
 import { SvelteMap } from 'svelte/reactivity';
 import type { Expand } from 'svelte-toolbelt';
-import { useId } from '$lib/internal/use-id';
 
 type VisibilityStates = 'hidden' | 'visible';
 type VisibilityEvents = 'hide' | 'show';
@@ -39,8 +38,7 @@ type FeatureBaseProps = {
 abstract class FeatureBase<
 	TFeature extends FeatureBase<TFeature, TLayer>,
 	TLayer extends LayerBase<TFeature, TLayer>
-> implements MapFeature
-{
+> {
 	#id: string;
 	#map: GoogleMap;
 	#layer: TLayer;
@@ -50,7 +48,6 @@ abstract class FeatureBase<
 		this.#id = props.id;
 		this.#map = map;
 		this.#layer = layer;
-
 		this.#layer.addFeature(this as unknown as TFeature);
 	}
 
@@ -104,8 +101,7 @@ type LayerBaseProps = FeatureBaseProps & {
 abstract class LayerBase<
 	TFeature extends FeatureBase<TFeature, TLayer>,
 	TLayer extends LayerBase<TFeature, TLayer>
-> implements MapFeature
-{
+> {
 	#id: string;
 	name: string;
 	#map: GoogleMap;
@@ -169,13 +165,6 @@ abstract class LayerBase<
 	}
 }
 
-type MapFeature = {
-	hide: () => void;
-	show: () => void;
-	isVisible: () => boolean;
-	delete: () => void;
-};
-
 type BaseProps = {
 	id: string;
 	visible: boolean;
@@ -219,10 +208,9 @@ class Marker extends FeatureBase<Marker, MarkerLayer> {
 	}
 }
 
-type PolygonProps<T extends Record<string, unknown> | null = null> = Expand<
+type PolygonProps = Expand<
 	BaseProps & {
 		geometry: google.maps.Data.Polygon;
-		properties: T;
 	}
 >;
 
@@ -241,9 +229,9 @@ class Polygon extends FeatureBase<Polygon, PolygonLayer> {
 
 		this.#polygon = new google.maps.Data.Feature({
 			id: props.id,
-			geometry: props.geometry,
-			properties: props.properties
+			geometry: props.geometry
 		});
+
 		this.initializeVisibility(props.visible);
 		this.layer.addFeature(this);
 		this.layer.googleLayer.add(this.#polygon);
@@ -313,10 +301,55 @@ class MarkerLayer extends LayerBase<Marker, MarkerLayer> {
 	}
 }
 
-type PolygonLayerProps = Expand<LayerProps & Omit<google.maps.Data.DataOptions, 'map'>>;
+export type PolygonStyling = Partial<
+	Pick<
+		google.maps.Data.StyleOptions,
+		| 'fillColor'
+		| 'fillOpacity'
+		| 'strokeColor'
+		| 'strokeWeight'
+		| 'strokeOpacity'
+		| 'zIndex'
+		| 'clickable'
+	>
+>;
+
+type PolygonLayerProps = Expand<
+	LayerProps &
+		Omit<google.maps.Data.DataOptions, 'map'> & {
+			defaultStyling: PolygonStyling;
+			hoverStyling: PolygonStyling;
+			clickStyling: PolygonStyling;
+		}
+>;
+
+export const polygonDefaultStyles: Record<string, PolygonStyling> = {
+	default: {
+		fillColor: '#FF0000',
+		fillOpacity: 0.5,
+		strokeColor: '#FF0000',
+		strokeWeight: 2,
+		strokeOpacity: 1
+	},
+	hover: {
+		strokeWeight: 4,
+		zIndex: 10
+	},
+	click: {
+		fillColor: '#07EDE5',
+		fillOpacity: 0.5,
+		strokeColor: '#07EDE5',
+		strokeWeight: 4,
+		strokeOpacity: 1,
+		zIndex: 10
+	}
+};
 
 class PolygonLayer extends LayerBase<Polygon, PolygonLayer> {
 	#googleLayer: google.maps.Data;
+	#defaultStyling: PolygonLayerProps['defaultStyling'];
+	#hoverStyling: PolygonLayerProps['hoverStyling'];
+	#clickStyling: PolygonLayerProps['clickStyling'];
 
 	constructor(props: PolygonLayerProps, map: GoogleMap) {
 		const { id, name, visible, ...opts } = props;
@@ -330,9 +363,57 @@ class PolygonLayer extends LayerBase<Polygon, PolygonLayer> {
 		);
 
 		this.#googleLayer = new google.maps.Data({ map: this.map.googleMap, ...opts });
+		this.#defaultStyling = props.defaultStyling;
+		this.#hoverStyling = props.hoverStyling;
+		this.#clickStyling = props.clickStyling;
+		this.#googleLayer.setStyle(this.#dynamicStyle());
+		this.#initEventListeners();
 
 		this.initializeVisibility(visible);
 		this.map.addDataLayer(this);
+	}
+
+	#dynamicStyle(style: 'default' | 'hover' | 'click' = 'default') {
+		switch (style) {
+			case 'hover':
+				return {
+					...this.#hoverStyling
+				};
+			case 'click':
+				return {
+					...this.#clickStyling
+				};
+			default:
+				return {
+					...this.#defaultStyling
+				};
+		}
+	}
+
+	#initEventListeners() {
+		const dynamicStyler = this.#dynamicStyle.bind(this);
+		const layer = this.#googleLayer;
+		// When the user clicks, set 'isColorful', changing the color of the letters.
+		this.#googleLayer.addListener('click', function (event: google.maps.Data.MouseEvent) {
+			layer.revertStyle();
+			layer.overrideStyle(event.feature, dynamicStyler('click'));
+		});
+
+		// When the user hovers, tempt them to click by outlining the letters.
+		// Call revertStyle() to remove all overrides. This will use the style rules
+		// defined in the function passed to setStyle()
+		this.#googleLayer.addListener('mouseover', function (event: google.maps.Data.MouseEvent) {
+			layer.revertStyle();
+			layer.overrideStyle(event.feature, dynamicStyler('hover'));
+		});
+
+		this.#googleLayer.addListener('mouseout', function () {
+			layer.revertStyle();
+		});
+	}
+
+	#destroyEventListeners() {
+		google.maps.event.clearInstanceListeners(this.#googleLayer);
 	}
 
 	onShow() {
@@ -351,6 +432,7 @@ class PolygonLayer extends LayerBase<Polygon, PolygonLayer> {
 	}
 
 	delete() {
+		this.#destroyEventListeners();
 		this.clearFeatures();
 		this.hide();
 	}
@@ -485,6 +567,7 @@ export class GoogleMap {
 
 	addDataLayer(data: DataLayer) {
 		this.#dataLayers.set(data.id, data);
+		console.log(this.#dataLayers);
 	}
 
 	deleteDataLayer(id: string) {

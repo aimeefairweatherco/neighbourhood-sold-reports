@@ -5,7 +5,6 @@
 
 	let {
 		opts,
-		attributes = null,
 		visible = $bindable(true),
 		id = useId('marker'),
 		children,
