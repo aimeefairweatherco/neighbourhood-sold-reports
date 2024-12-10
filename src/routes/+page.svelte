@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Badge } from '$lib/components/shadcn/badge/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
@@ -9,29 +10,13 @@
 
 	import * as Maps from '$lib/components/custom/google-maps/index.js';
 
-	const poly = [
-		{ lat: 43.812992, lng: -79.243009 },
-		{ lat: 43.822264, lng: -79.246994 },
-		{ lat: 43.81696, lng: -79.27155 },
-		{ lat: 43.810324, lng: -79.30111 },
-		{ lat: 43.802315, lng: -79.2975 },
-		{ lat: 43.800348, lng: -79.295662 },
-		{ lat: 43.795148, lng: -79.293416 },
-		{ lat: 43.789718, lng: -79.291009 },
-		{ lat: 43.78326, lng: -79.288317 },
-		{ lat: 43.774832, lng: -79.284457 },
-		{ lat: 43.777097, lng: -79.274679 },
-		{ lat: 43.780034, lng: -79.260155 },
-		{ lat: 43.783027, lng: -79.245038 },
-		{ lat: 43.785382, lng: -79.235375 },
-		{ lat: 43.79373, lng: -79.238761 },
-		{ lat: 43.795031, lng: -79.239715 },
-		{ lat: 43.801714, lng: -79.241881 },
-		{ lat: 43.806475, lng: -79.243927 },
-		{ lat: 43.808627, lng: -79.243745 },
-		{ lat: 43.810821, lng: -79.242756 },
-		{ lat: 43.812992, lng: -79.243009 }
-	];
+	let { data }: { data: PageData } = $props();
+
+	const { neighbourhoods, regions } = data;
+
+	function filterNeighbourhoods(id: number) {
+		return neighbourhoods.filter((neighbourhood) => neighbourhood.region_id === id);
+	}
 
 	const markerOpts = {
 		position: { lat: 43.730091, lng: -79.399199 }
@@ -44,10 +29,22 @@
 			<Maps.MarkerLayer>
 				<Maps.Marker opts={markerOpts}></Maps.Marker>
 			</Maps.MarkerLayer>
-
-			<Maps.PolygonLayer>
-				<Maps.Polygon geometry={[poly]}></Maps.Polygon>
-			</Maps.PolygonLayer>
+			{#each regions as region}
+				<Maps.PolygonLayer
+					name={region.name}
+					defaultStyling={{
+						fillColor: region.color,
+						fillOpacity: 0.5,
+						strokeColor: region.color,
+						strokeWeight: 1,
+						strokeOpacity: 1
+					}}
+				>
+					{#each filterNeighbourhoods(region.id) as neighbourhood}
+						<Maps.Polygon geometry={[neighbourhood.polygon_data]}></Maps.Polygon>
+					{/each}
+				</Maps.PolygonLayer>
+			{/each}
 		</Maps.Map></Maps.Root
 	>
 </div>

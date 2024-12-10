@@ -15,6 +15,7 @@
 		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
+		"@libsql/client": "^0.14.0",
 		"@playwright/test": "^1.45.3",
 		"@sveltejs/adapter-auto": "^3.0.0",
 		"@sveltejs/kit": "^2.0.0",
@@ -43,12 +44,15 @@
 		"vitest": "^2.0.4"
 	},
 	"dependencies": {
+		"@1password/sdk": "^0.1.5",
 		"@googlemaps/js-api-loader": "^1.16.8",
 		"@tailwindcss/container-queries": "^0.1.1",
 		"@tailwindcss/forms": "^0.5.9",
 		"@tailwindcss/typography": "^0.5.15",
 		"@types/google.maps": "^3.58.1",
+		"dotenv": "^16.4.7",
 		"runed": "^0.16.1",
-		"svelte-toolbelt": "^0.5.0"
+		"svelte-toolbelt": "^0.5.0",
+		"zod": "^3.23.8"
 	}
 }
