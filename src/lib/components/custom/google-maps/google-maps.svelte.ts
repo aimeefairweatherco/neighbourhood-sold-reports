@@ -1,514 +1,37 @@
 import { createContext } from '$lib/internal/create-context.js';
-import { Loader, type LoaderOptions } from '@googlemaps/js-api-loader';
 import { FiniteStateMachine } from 'runed';
 import { SvelteMap } from 'svelte/reactivity';
+import { GoogleMapsApiLoader, type GoogleMapsApiLoaderProps } from './api-loader.svelte.js';
 import type { Expand } from 'svelte-toolbelt';
 
-type VisibilityStates = 'hidden' | 'visible';
-type VisibilityEvents = 'hide' | 'show';
-type VisibilityStateMachineFunctions = {
-	show: () => void;
-	hide: () => void;
-};
-type VisibilityStateMachine = FiniteStateMachine<VisibilityStates, VisibilityEvents>;
-
-function visibilityStateMachine(initiallyVisible: boolean, fn: VisibilityStateMachineFunctions) {
-	const initialState = initiallyVisible ? 'visible' : 'hidden';
-	return new FiniteStateMachine<VisibilityStates, VisibilityEvents>(initialState, {
-		hidden: {
-			show: 'visible',
-			_enter: () => {
-				fn.hide();
-			}
-		},
-		visible: {
-			hide: 'hidden',
-			_enter: () => {
-				fn.show();
-			}
-		}
-	});
-}
-
-type FeatureBaseProps = {
-	id: string;
-	visible: boolean;
-};
-
-abstract class FeatureBase<
-	TFeature extends FeatureBase<TFeature, TLayer>,
-	TLayer extends LayerBase<TFeature, TLayer>
-> {
-	#id: string;
-	#map: GoogleMap;
-	#layer: TLayer;
-	#visibility?: VisibilityStateMachine;
-
-	constructor(props: FeatureBaseProps, map: GoogleMap, layer: TLayer) {
-		this.#id = props.id;
-		this.#map = map;
-		this.#layer = layer;
-		this.#layer.addFeature(this as unknown as TFeature);
-	}
-
-	protected initializeVisibility(initialVisibility: boolean) {
-		if (this.#visibility) return; // Prevent re-initialization
-		this.#visibility = visibilityStateMachine(initialVisibility, {
-			show: () => this.onShow(),
-			hide: () => this.onHide()
-		});
-	}
-
-	abstract onShow(): void;
-	abstract onHide(): void;
-
-	hide() {
-		if (!this.#visibility) return;
-		this.#visibility.send('hide');
-	}
-
-	show() {
-		if (!this.#visibility) return;
-		this.#visibility.send('show');
-	}
-
-	isVisible() {
-		if (!this.#visibility) return false;
-		return this.#visibility.current === 'visible';
-	}
-
-	delete() {
-		this.#layer.deleteFeature(this.id);
-	}
-
-	get map() {
-		return this.#map;
-	}
-
-	get layer() {
-		return this.#layer;
-	}
-
-	get id() {
-		return this.#id;
-	}
-}
-
-type LayerBaseProps = FeatureBaseProps & {
-	name: string;
-};
-
-abstract class LayerBase<
-	TFeature extends FeatureBase<TFeature, TLayer>,
-	TLayer extends LayerBase<TFeature, TLayer>
-> {
-	#id: string;
-	name: string;
-	#map: GoogleMap;
-	#visibility?: VisibilityStateMachine;
-	#features = new SvelteMap<string, TFeature>();
-
-	constructor(props: LayerBaseProps, map: GoogleMap) {
-		this.#id = props.id;
-		this.#map = map;
-		this.name = props.name;
-	}
-
-	protected initializeVisibility(initialVisibility: boolean) {
-		if (this.#visibility) return; // Prevent re-initialization
-		this.#visibility = visibilityStateMachine(initialVisibility, {
-			show: () => this.onShow(),
-			hide: () => this.onHide()
-		});
-	}
-
-	abstract onShow(): void;
-	abstract onHide(): void;
-	abstract deleteFeature(id: string): void;
-	abstract delete(): void;
-
-	addFeature(feature: TFeature) {
-		this.#features.set(feature.id, feature);
-	}
-
-	clearFeatures() {
-		this.#features.forEach((feature) => {
-			this.deleteFeature(feature.id);
-		});
-	}
-
-	hide() {
-		if (!this.#visibility) return;
-		this.#visibility.send('hide');
-	}
-
-	show() {
-		if (!this.#visibility) return;
-		this.#visibility.send('show');
-	}
-
-	isVisible() {
-		if (!this.#visibility) return false;
-		return this.#visibility.current === 'visible';
-	}
-
-	get id() {
-		return this.#id;
-	}
-
-	get map() {
-		return this.#map;
-	}
-
-	get features() {
-		return this.#features;
-	}
-}
-
-type BaseProps = {
-	id: string;
-	visible: boolean;
-};
-
-type MarkerProps = Expand<BaseProps & Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'>>;
-
-class Marker extends FeatureBase<Marker, MarkerLayer> {
-	#marker: google.maps.marker.AdvancedMarkerElement;
-
-	constructor(props: MarkerProps, map: GoogleMap, layer: MarkerLayer) {
-		const { id, visible, ...opts } = props;
-		super(
-			{
-				id,
-				visible
-			},
-			map,
-			layer
-		);
-
-		this.#marker = new google.maps.marker.AdvancedMarkerElement({
-			...opts,
-			map: this.map.googleMap
-		});
-
-		this.initializeVisibility(visible);
-		this.layer.addFeature(this);
-	}
-
-	onShow() {
-		this.#marker.map = this.map.googleMap;
-	}
-
-	onHide() {
-		this.#marker.map = null;
-	}
-
-	get googleMarker() {
-		return this.#marker;
-	}
-}
-
-type PolygonProps = Expand<
-	BaseProps & {
-		geometry: google.maps.Data.Polygon;
+export type GoogleMapsApiProviderProps = Expand<
+	GoogleMapsApiLoaderProps & {
+		onError?: (error: Error) => void;
 	}
 >;
 
-class Polygon extends FeatureBase<Polygon, PolygonLayer> {
-	#polygon: google.maps.Data.Feature;
+export class GoogleMapsApiProvider {
+	#loader: GoogleMapsApiLoader;
+	#requestedLibraries = $state<GoogleMapsApiLoaderProps['libraries']>([]);
 
-	constructor(props: PolygonProps, map: GoogleMap, layer: PolygonLayer) {
-		super(
-			{
-				id: props.id,
-				visible: props.visible
-			},
-			map,
-			layer
-		);
-
-		this.#polygon = new google.maps.Data.Feature({
-			id: props.id,
-			geometry: props.geometry
-		});
-
-		this.initializeVisibility(props.visible);
-		this.layer.addFeature(this);
-		this.layer.googleLayer.add(this.#polygon);
+	private constructor(props: GoogleMapsApiProviderProps, loader: GoogleMapsApiLoader) {
+		this.#loader = loader;
+		const requestedLibraries = new Set(props.libraries);
+		this.#requestedLibraries.push(...requestedLibraries);
 	}
 
-	onShow() {
-		this.layer.googleLayer.overrideStyle(this.#polygon, { visible: true });
+	static async create(props: GoogleMapsApiProviderProps, loader: GoogleMapsApiLoader) {
+		loader.init(props);
+		await loader.loadLibraries(props.libraries);
+		return new GoogleMapsApiProvider(props, loader);
 	}
 
-	onHide() {
-		this.layer.googleLayer.overrideStyle(this.#polygon, { visible: false });
-	}
-
-	get googlePolygon() {
-		return this.#polygon;
-	}
-}
-
-type LayerProps = Expand<
-	BaseProps & {
-		name: string;
-	}
->;
-
-type MarkerLayerProps = Expand<LayerProps>;
-
-class MarkerLayer extends LayerBase<Marker, MarkerLayer> {
-	constructor(props: MarkerLayerProps, map: GoogleMap) {
-		super(
-			{
-				id: props.id,
-				visible: props.visible,
-				name: props.name
-			},
-			map
-		);
-
-		this.initializeVisibility(props.visible);
-		this.map.addDataLayer(this);
-	}
-
-	onShow() {
-		this.features.forEach((feature) => {
-			feature.show();
-		});
-	}
-
-	onHide() {
-		this.features.forEach((feature) => {
-			feature.hide();
-		});
-	}
-
-	deleteFeature(id: string) {
-		const feature = this.features.get(id);
-		if (!feature) return;
-		feature.hide();
-		this.features.delete(id);
-	}
-
-	delete() {
-		this.clearFeatures();
-	}
-
-	get markers() {
-		return this.features;
-	}
-}
-
-export type PolygonStyling = Partial<
-	Pick<
-		google.maps.Data.StyleOptions,
-		| 'fillColor'
-		| 'fillOpacity'
-		| 'strokeColor'
-		| 'strokeWeight'
-		| 'strokeOpacity'
-		| 'zIndex'
-		| 'clickable'
-	>
->;
-
-type PolygonLayerProps = Expand<
-	LayerProps &
-		Omit<google.maps.Data.DataOptions, 'map'> & {
-			defaultStyling: PolygonStyling;
-			hoverStyling: PolygonStyling;
-			clickStyling: PolygonStyling;
-		}
->;
-
-export const polygonDefaultStyles: Record<string, PolygonStyling> = {
-	default: {
-		fillColor: '#FF0000',
-		fillOpacity: 0.5,
-		strokeColor: '#FF0000',
-		strokeWeight: 2,
-		strokeOpacity: 1
-	},
-	hover: {
-		strokeWeight: 4,
-		zIndex: 10
-	},
-	click: {
-		fillColor: '#07EDE5',
-		fillOpacity: 0.5,
-		strokeColor: '#07EDE5',
-		strokeWeight: 4,
-		strokeOpacity: 1,
-		zIndex: 10
-	}
-};
-
-class PolygonLayer extends LayerBase<Polygon, PolygonLayer> {
-	#googleLayer: google.maps.Data;
-	#defaultStyling: PolygonLayerProps['defaultStyling'];
-	#hoverStyling: PolygonLayerProps['hoverStyling'];
-	#clickStyling: PolygonLayerProps['clickStyling'];
-
-	constructor(props: PolygonLayerProps, map: GoogleMap) {
-		const { id, name, visible, ...opts } = props;
-		super(
-			{
-				id,
-				visible,
-				name
-			},
-			map
-		);
-
-		this.#googleLayer = new google.maps.Data({ map: this.map.googleMap, ...opts });
-		this.#defaultStyling = props.defaultStyling;
-		this.#hoverStyling = props.hoverStyling;
-		this.#clickStyling = props.clickStyling;
-		this.#googleLayer.setStyle(this.#dynamicStyle());
-		this.#initEventListeners();
-
-		this.initializeVisibility(visible);
-		this.map.addDataLayer(this);
-	}
-
-	#dynamicStyle(style: 'default' | 'hover' | 'click' = 'default') {
-		switch (style) {
-			case 'hover':
-				return {
-					...this.#hoverStyling
-				};
-			case 'click':
-				return {
-					...this.#clickStyling
-				};
-			default:
-				return {
-					...this.#defaultStyling
-				};
-		}
-	}
-
-	#initEventListeners() {
-		const dynamicStyler = this.#dynamicStyle.bind(this);
-		const layer = this.#googleLayer;
-		// When the user clicks, set 'isColorful', changing the color of the letters.
-		this.#googleLayer.addListener('click', function (event: google.maps.Data.MouseEvent) {
-			layer.revertStyle();
-			layer.overrideStyle(event.feature, dynamicStyler('click'));
-		});
-
-		// When the user hovers, tempt them to click by outlining the letters.
-		// Call revertStyle() to remove all overrides. This will use the style rules
-		// defined in the function passed to setStyle()
-		this.#googleLayer.addListener('mouseover', function (event: google.maps.Data.MouseEvent) {
-			layer.revertStyle();
-			layer.overrideStyle(event.feature, dynamicStyler('hover'));
-		});
-
-		this.#googleLayer.addListener('mouseout', function () {
-			layer.revertStyle();
-		});
-	}
-
-	#destroyEventListeners() {
-		google.maps.event.clearInstanceListeners(this.#googleLayer);
-	}
-
-	onShow() {
-		this.#googleLayer.setMap(this.map.googleMap);
-	}
-
-	onHide() {
-		this.#googleLayer.setMap(null);
-	}
-
-	deleteFeature(id: string) {
-		const feature = this.features.get(id);
-		if (!feature) return;
-		this.#googleLayer.remove(feature.googlePolygon);
-		this.features.delete(id);
-	}
-
-	delete() {
-		this.#destroyEventListeners();
-		this.clearFeatures();
-		this.hide();
-	}
-
-	get polygons() {
-		return this.features;
-	}
-
-	get googleLayer() {
-		return this.#googleLayer;
-	}
-}
-
-type GoogleMapsApiLoaderProps = {
-	libraries: NonNullable<LoaderOptions['libraries']>;
-	version: NonNullable<LoaderOptions['version']>;
-	apiKey: LoaderOptions['apiKey'];
-	region: NonNullable<LoaderOptions['region']>;
-};
-
-type GoogleMapsApiLoaderStates = 'inert' | 'loading' | 'loaded' | 'error';
-type GoogleMapsApiLoaderEvents = 'startLoading' | 'toggleLoaded' | 'toggleError';
-const apiLoaderState = new FiniteStateMachine<GoogleMapsApiLoaderStates, GoogleMapsApiLoaderEvents>(
-	'inert',
-	{
-		inert: {
-			startLoading: 'loading'
-		},
-		loading: {
-			toggleLoaded: 'loaded',
-			toggleError: 'error'
-		},
-		loaded: {},
-		error: {}
-	}
-);
-
-export class GoogleMapsApiLoader {
-	#loader: Loader;
-	status = apiLoaderState;
-
-	constructor(props: GoogleMapsApiLoaderProps) {
-		this.#loader = new Loader({
-			apiKey: props.apiKey,
-			version: props.version,
-			libraries: props.libraries,
-			region: props.region
-		});
-
-		$effect(() => {
-			this.loadLibraries();
-		});
-	}
-
-	async loadLibraries() {
-		if (typeof window === 'undefined') {
-			// If running on the server, do not attempt to load the libraries
-			return false;
-		}
-		try {
-			this.status.send('startLoading');
-			const results = this.#loader.libraries.map((library) => this.#loader.importLibrary(library));
-
-			await Promise.all(results);
-
-			this.status.send('toggleLoaded');
-		} catch (error) {
-			console.error('Error loading Google Maps libraries:', error);
-			this.status.send('toggleError');
-		}
+	get apis() {
+		return this.#loader.apis;
 	}
 
 	get loadedLibraries() {
-		if (this.status.current !== 'loaded') return;
-
-		return this.#loader.libraries;
+		return this.#loader.loadedLibraries;
 	}
 }
 
@@ -537,24 +60,53 @@ type GoogleMapProps = {
 	opts?: Omit<google.maps.MapOptions, 'mapId'>;
 };
 
-type DataLayer = PolygonLayer | MarkerLayer;
+type DataLayer = MapPolygonLayer | MapMarkerLayer;
 
 export class GoogleMap {
-	root: GoogleMapsApiLoader;
-	#map: google.maps.Map;
+	#apiProvider: GoogleMapsApiProvider;
+	#id: GoogleMapProps['mapId'];
+	#mapDiv: GoogleMapProps['mapDiv'];
+	#googleMap: google.maps.Map;
 	#state = googleMapState;
 	#dataLayers = new SvelteMap<string, DataLayer>();
 
-	constructor(props: GoogleMapProps, root: GoogleMapsApiLoader) {
-		this.root = root;
-		if (!this.root.loadedLibraries || !this.root.loadedLibraries.includes('maps')) {
-			throw new Error('Please import the Google Maps "maps" library to use the Map component.');
-		}
-		this.#map = new google.maps.Map(props.mapDiv, { mapId: props.mapId, ...props.opts });
+	private constructor(
+		props: GoogleMapProps,
+		apiProvider: GoogleMapsApiProvider,
+		googleMapInstance: google.maps.Map
+	) {
+		this.#apiProvider = apiProvider;
+		this.#id = props.mapId;
+		this.#mapDiv = props.mapDiv;
+		this.#googleMap = googleMapInstance;
+	}
+
+	/**
+	 * Static factory method to create a fully-initialized GoogleMap instance.
+	 * Assumes `apiProvider` is already resolved and `google.maps` is ready.
+	 */
+	static async create(
+		props: GoogleMapProps,
+		apiProvider: Promise<GoogleMapsApiProvider>
+	): Promise<GoogleMap> {
+		const _apiProvider = await apiProvider;
+		const googleMapInstance = new google.maps.Map(props.mapDiv, {
+			mapId: props.mapId,
+			...props.opts
+		});
+		return new GoogleMap(props, _apiProvider, googleMapInstance);
+	}
+
+	get id() {
+		return this.#id;
+	}
+
+	get mapDiv() {
+		return this.#mapDiv;
 	}
 
 	get googleMap() {
-		return this.#map;
+		return this.#googleMap;
 	}
 
 	get googleMapState() {
@@ -565,24 +117,31 @@ export class GoogleMap {
 		return this.#dataLayers;
 	}
 
+	get apiProvider() {
+		return this.#apiProvider;
+	}
+
 	addDataLayer(data: DataLayer) {
 		this.#dataLayers.set(data.id, data);
-		console.log(this.#dataLayers);
 	}
 
 	deleteDataLayer(id: string) {
 		const layer = this.#dataLayers.get(id);
 		if (!layer) return;
-		layer.delete();
 		this.#dataLayers.delete(id);
+		layer.delete();
 	}
 
 	hideDataLayer(id: string) {
-		this.#dataLayers.get(id)?.hide();
+		const layer = this.#dataLayers.get(id);
+		if (!layer) return;
+		layer.visible = false;
 	}
 
 	showDataLayer(id: string) {
-		this.#dataLayers.get(id)?.show();
+		const layer = this.#dataLayers.get(id);
+		if (!layer) return;
+		layer.visible = true;
 	}
 
 	clearDataLayers() {
@@ -592,7 +151,7 @@ export class GoogleMap {
 	}
 
 	smoothZoom = async (targetZoomLevel: number, location?: LatLng) => {
-		const initialZoomLevel = this.#map.getZoom();
+		const initialZoomLevel = this.#googleMap.getZoom();
 		if (initialZoomLevel === undefined) return;
 
 		if (location) {
@@ -604,27 +163,23 @@ export class GoogleMap {
 	};
 
 	#checkPointInBounds = (point: LatLng) => {
-		const bounds = this.#map.getBounds();
+		const bounds = this.#googleMap.getBounds();
 		if (!bounds) return false;
 		return bounds.contains(point);
 	};
 
 	#panAndZoom = async (targetZoomLevel: number, initialZoomLevel: number, location: LatLng) => {
-		// If the new location is outside the map bounds, continue to zoom out
-
 		while (!this.#checkPointInBounds(location)) {
-			const currentZoomLevel = this.#map.getZoom();
+			const currentZoomLevel = this.#googleMap.getZoom();
 			if (currentZoomLevel === undefined) return;
-
 			await this.#zoomTo(currentZoomLevel - 1);
 		}
 
 		this.#state.send('togglePanning');
-
-		this.#map.panTo(location);
+		this.#googleMap.panTo(location);
 
 		await new Promise<void>((resolve) => {
-			google.maps.event.addListenerOnce(this.#map, 'idle', async () => {
+			google.maps.event.addListenerOnce(this.#googleMap, 'idle', async () => {
 				await this.#zoomTo(targetZoomLevel);
 				resolve();
 			});
@@ -632,17 +187,16 @@ export class GoogleMap {
 	};
 
 	#zoomTo = async (targetZoomLevel: number, nextZoomLevel?: number): Promise<void> => {
-		const currentZoom = this.#map.getZoom();
-
+		const currentZoom = this.#googleMap.getZoom();
 		if (currentZoom === undefined || currentZoom === targetZoomLevel) {
 			return;
 		}
 
-		nextZoomLevel = targetZoomLevel > currentZoom ? currentZoom + 1 : currentZoom - 1;
+		const nextZoomWithDirection = targetZoomLevel > currentZoom ? currentZoom + 1 : currentZoom - 1;
 
-		return new Promise((resolve) => {
+		return new Promise<void>((resolve) => {
 			const zoomChangeListener = google.maps.event.addListener(
-				this.#map,
+				this.#googleMap,
 				'zoom_changed',
 				async () => {
 					google.maps.event.removeListener(zoomChangeListener);
@@ -651,17 +205,445 @@ export class GoogleMap {
 				}
 			);
 
-			this.#doZoom(nextZoomLevel);
+			this.#doZoom(nextZoomWithDirection);
 		});
 	};
 
 	#doZoom = (zoomLevel: number) => {
-		if (this.#state.current !== 'zooming') this.#state.send('toggleZooming');
+		if (this.#state.current !== 'zooming') {
+			this.#state.send('toggleZooming');
+		}
 		setTimeout(() => {
-			this.#map.setZoom(zoomLevel);
+			this.#googleMap.setZoom(zoomLevel);
 		}, 30);
 	};
 }
+
+type MapFeatureProps = {
+	id: string;
+};
+
+export type MapFeatureTypes = MapMarker | MapPolygon;
+
+type MapLayerProps = Expand<
+	MapFeatureProps & {
+		visible: boolean;
+		name: string;
+	}
+>;
+
+abstract class MapLayer<T extends MapFeatureTypes> {
+	#apiProvider: GoogleMapsApiProvider;
+	#id: MapLayerProps['id'];
+	name: MapLayerProps['name'];
+	#visible = $state<MapLayerProps['visible']>(false);
+	#filter = $state<((feature: T) => boolean) | null>(null);
+	#map: GoogleMap;
+	protected features = new SvelteMap<string, T>();
+
+	constructor(props: MapLayerProps, map: GoogleMap) {
+		this.#id = props.id;
+		this.name = props.name;
+		this.#map = map;
+		this.#apiProvider = map.apiProvider;
+		this.#visible = props.visible;
+	}
+
+	get id() {
+		return this.#id;
+	}
+
+	get map() {
+		return this.#map;
+	}
+
+	get apiProvider() {
+		return this.#apiProvider;
+	}
+
+	protected abstract hideAll(): void;
+	protected abstract showAll(): void;
+	protected abstract applyFilter(filter: (feature: T) => boolean): void;
+
+	set visible(value: boolean) {
+		this.#visible = value;
+		if (value) {
+			this.showAll();
+			// Reapply filter if exists
+			if (this.#filter) {
+				this.applyFilter(this.#filter);
+			}
+		} else {
+			this.hideAll();
+		}
+	}
+
+	get visible() {
+		return this.#visible;
+	}
+
+	setFilter(filterFn: ((feature: T) => boolean) | null) {
+		this.#filter = filterFn;
+		if (this.visible && filterFn) {
+			this.applyFilter(filterFn);
+		} else if (this.visible) {
+			// If filter is removed, show all
+			this.showAll();
+		}
+	}
+
+	addFeature(feature: T) {
+		this.features.set(feature.id, feature);
+		if (this.#visible) {
+			this.showAll();
+		} else {
+			this.hideAll();
+		}
+	}
+
+	deleteFeature(id: string) {
+		const feature = this.features.get(id);
+		if (!feature) return;
+		this.features.delete(id);
+		feature.delete();
+	}
+
+	clearFeatures() {
+		this.features.forEach((feature) => {
+			this.deleteFeature(feature.id);
+		});
+	}
+}
+
+class MapMarkerLayer extends MapLayer<MapMarker> {
+	private constructor(props: MapLayerProps, map: GoogleMap) {
+		super(props, map);
+		this.map.addDataLayer(this);
+	}
+
+	static async create(props: MapLayerProps, map: Promise<GoogleMap>): Promise<MapMarkerLayer> {
+		const _map = await map;
+		return new MapMarkerLayer(props, _map);
+	}
+
+	protected hideAll() {
+		this.features.forEach((marker) => (marker.googleMarker.map = null));
+	}
+
+	protected showAll() {
+		this.features.forEach((marker) => (marker.googleMarker.map = this.map.googleMap));
+	}
+
+	protected applyFilter(filter: (marker: MapMarker) => boolean) {
+		this.features.forEach((marker) => {
+			marker.googleMarker.map = filter(marker) ? this.map.googleMap : null;
+		});
+	}
+
+	delete() {
+		this.clearFeatures();
+		this.map.deleteDataLayer(this.id);
+	}
+
+	get markers() {
+		return this.features;
+	}
+}
+
+export const polygonDefaultStyles: Record<string, PolygonStyling> = {
+	default: {
+		fillColor: '#FF0000',
+		fillOpacity: 0.5,
+		strokeColor: '#FF0000',
+		strokeWeight: 2,
+		strokeOpacity: 1
+	},
+	hover: {
+		strokeWeight: 4,
+		zIndex: 10
+	},
+	click: {
+		fillColor: '#07EDE5',
+		fillOpacity: 0.5,
+		strokeColor: '#07EDE5',
+		strokeWeight: 4,
+		strokeOpacity: 1,
+		zIndex: 10
+	}
+};
+
+export type PolygonStyling = Partial<
+	Pick<
+		google.maps.Data.StyleOptions,
+		| 'fillColor'
+		| 'fillOpacity'
+		| 'strokeColor'
+		| 'strokeWeight'
+		| 'strokeOpacity'
+		| 'zIndex'
+		| 'clickable'
+	>
+>;
+
+type MapPolygonLayerProps = Expand<
+	MapLayerProps & {
+		opts?: Omit<google.maps.Data.DataOptions, 'map'>;
+		styling: {
+			defaultStyling: PolygonStyling;
+			hoverStyling: PolygonStyling;
+			clickStyling: PolygonStyling;
+		};
+	}
+>;
+
+class MapPolygonLayer extends MapLayer<MapPolygon> {
+	#googleLayer: google.maps.Data;
+	#styling: MapPolygonLayerProps['styling'];
+
+	private constructor(props: MapPolygonLayerProps, map: GoogleMap) {
+		const { opts, styling, ...superProps } = props;
+		super(superProps, map);
+
+		this.#styling = styling;
+		this.#googleLayer = new google.maps.Data({ map: this.map.googleMap, ...opts });
+		this.#googleLayer.setStyle(this.#dynamicStyle());
+		this.#initEventListeners();
+
+		this.map.addDataLayer(this);
+	}
+
+	static async create(
+		props: MapPolygonLayerProps,
+		map: Promise<GoogleMap>
+	): Promise<MapPolygonLayer> {
+		const _map = await map;
+		return new MapPolygonLayer(props, _map);
+	}
+
+	protected hideAll() {
+		this.#googleLayer.setMap(null);
+	}
+
+	protected showAll() {
+		this.#googleLayer.setMap(this.map.googleMap);
+	}
+
+	protected applyFilter(filter: (polygon: MapPolygon) => boolean) {
+		this.features.forEach((polygon) => {
+			this.#googleLayer.overrideStyle(polygon.googlePolygon, {
+				visible: filter(polygon)
+			});
+		});
+	}
+
+	delete() {
+		this.#destroyEventListeners();
+		this.clearFeatures();
+		this.map.deleteDataLayer(this.id);
+		this.#googleLayer.setMap(null);
+	}
+
+	#dynamicStyle(style: 'default' | 'hover' | 'click' = 'default') {
+		switch (style) {
+			case 'hover':
+				return {
+					...this.#styling.hoverStyling
+				};
+			case 'click':
+				return {
+					...this.#styling.clickStyling
+				};
+			default:
+				return {
+					...this.#styling.defaultStyling
+				};
+		}
+	}
+
+	#initEventListeners() {
+		const layer = this.#googleLayer;
+
+		const dynamicStyler = this.#dynamicStyle.bind(this);
+
+		layer.addListener('click', function (event: google.maps.Data.MouseEvent) {
+			layer.revertStyle();
+			layer.overrideStyle(event.feature, dynamicStyler('click'));
+		});
+
+		layer.addListener('mouseover', function (event: google.maps.Data.MouseEvent) {
+			layer.revertStyle();
+			layer.overrideStyle(event.feature, dynamicStyler('hover'));
+		});
+
+		layer.addListener('mouseout', function () {
+			layer.revertStyle();
+		});
+	}
+
+	#destroyEventListeners() {
+		const layer = this.#googleLayer;
+		google.maps.event.clearInstanceListeners(layer);
+	}
+
+	// Need to override because the polygon needs to also be added to the google.map.Data class features
+	addFeature(polygon: MapPolygon) {
+		super.addFeature(polygon);
+		this.#googleLayer.add(polygon.googlePolygon);
+	}
+
+	get polygons() {
+		return this.features;
+	}
+
+	get googleLayer() {
+		return this.#googleLayer;
+	}
+}
+
+type MapLayerTypes = MapMarkerLayer | MapPolygonLayer;
+abstract class MapFeature<T extends MapLayerTypes> {
+	#id: MapFeatureProps['id'];
+	#map: GoogleMap;
+	#layer: T;
+	#apiProvider: GoogleMapsApiProvider;
+
+	constructor(props: MapFeatureProps, map: GoogleMap, layer: T) {
+		this.#id = props.id;
+		this.#map = map;
+		this.#layer = layer;
+		this.#apiProvider = map.apiProvider;
+	}
+
+	abstract delete(): void;
+
+	get map() {
+		return this.#map;
+	}
+
+	get layer() {
+		return this.#layer;
+	}
+
+	get id() {
+		return this.#id;
+	}
+
+	get apiProvider() {
+		return this.#apiProvider;
+	}
+}
+
+type MapMarkerProps = Expand<
+	MapFeatureProps & { markerOpts: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'> }
+>;
+
+export class MapMarker extends MapFeature<MapMarkerLayer> {
+	#marker: google.maps.marker.AdvancedMarkerElement;
+
+	private constructor(props: MapMarkerProps, map: GoogleMap, layer: MapMarkerLayer) {
+		const { markerOpts, ...superProps } = props;
+		super(superProps, map, layer);
+
+		this.#marker = new google.maps.marker.AdvancedMarkerElement({
+			...markerOpts,
+			map: this.map.googleMap
+		});
+
+		this.layer.addFeature(this);
+	}
+
+	static async create(
+		props: MapMarkerProps,
+		map: Promise<GoogleMap>,
+		layer: Promise<MapMarkerLayer>
+	): Promise<MapMarker> {
+		const [_map, _layer] = await Promise.all([map, layer]);
+		return new MapMarker(props, _map, _layer);
+	}
+
+	delete() {
+		if (this.#marker) this.#marker.map = null;
+	}
+
+	get googleMarker() {
+		return this.#marker;
+	}
+}
+
+type MapPolygonProps = Expand<
+	MapFeatureProps & {
+		opts: {
+			geometry: google.maps.Data.Polygon;
+		};
+	}
+>;
+export class MapPolygon extends MapFeature<MapPolygonLayer> {
+	#polygon: google.maps.Data.Feature;
+
+	private constructor(props: MapPolygonProps, map: GoogleMap, layer: MapPolygonLayer) {
+		const { opts, ...superProps } = props;
+		super(superProps, map, layer);
+
+		this.#polygon = new google.maps.Data.Feature({
+			id: this.id,
+			geometry: opts.geometry
+		});
+
+		this.layer.addFeature(this);
+	}
+
+	static async create(
+		props: MapPolygonProps,
+		map: Promise<GoogleMap>,
+		layer: Promise<MapPolygonLayer>
+	): Promise<MapPolygon> {
+		const [_map, _layer] = await Promise.all([map, layer]);
+		return new MapPolygon(props, _map, _layer);
+	}
+
+	delete() {
+		this.layer.googleLayer.remove(this.#polygon);
+	}
+
+	get googlePolygon() {
+		return this.#polygon;
+	}
+}
+
+/*
+export type Address = Expand<
+	google.maps.LatLngLiteral & {
+		number?: string;
+		street: string;
+		city: string;
+		state: string;
+		country: string;
+		zip: string;
+	}
+>;
+
+export type AddressAutocompleteProps = Expand<
+	{
+		input: HTMLInputElement;
+	} & google.maps.places.AutocompleteOptions
+>;
+
+const defaultAutocompleteOptions: google.maps.places.AutocompleteOptions = {
+	fields: ['formatted_address', 'address_components', 'geometry', 'place_id', 'type'],
+	strictBounds: false,
+	types: ['address'],
+	componentRestrictions: { country: ['ca', 'us'] }
+};
+
+export class AddressAutocompleteState {
+	#autocomplete: google.maps.places.Autocomplete;
+	#input: HTMLInputElement;
+
+	constructor(input: HTMLInputElement, options: google.maps.places.AutocompleteOptions) {
+		this.#input = input;
+		this.#autocomplete = new google.maps.places.Autocomplete(this.#input, options);
+	}
+}*/
 
 /*
 
@@ -694,48 +676,58 @@ export class GoogleMapsCustomControlState {}
 export class GoogleMapsAutoCompleteState {}
 */
 
-const [setRootContext, getRootContext] = createContext<GoogleMapsApiLoader>('Maps.ApiProvider');
+const [setApiProviderContext, getApiProviderContext] =
+	createContext<Promise<GoogleMapsApiProvider>>('Maps.ApiProvider');
 
-const [setMapContext, getMapContext] = createContext<GoogleMap>('Maps.Map');
+const [setMapContext, getMapContext] = createContext<Promise<GoogleMap>>('Maps.Map');
 
 const [setMarkerLayerContext, getMarkerLayerContext] =
-	createContext<MarkerLayer>('Maps.MarkerLayer');
+	createContext<Promise<MapMarkerLayer>>('Maps.MarkerLayer');
 
 const [setPolygonLayerContext, getPolygonLayerContext] =
-	createContext<PolygonLayer>('Maps.PolygonLayer');
+	createContext<Promise<MapPolygonLayer>>('Maps.PolygonLayer');
 
-const [setMarkerContext, getMarkerContext] = createContext<Marker>('Maps.Marker');
+const [setMarkerContext, getMarkerContext] = createContext<Promise<MapMarker>>('Maps.Marker');
 
-const [setPolygonContext, getPolygonContext] = createContext<Polygon>('Maps.Polygon');
+const [setPolygonContext, getPolygonContext] = createContext<Promise<MapPolygon>>('Maps.Polygon');
 
-export function useGoogleMapsRoot(props: GoogleMapsApiLoaderProps) {
-	return setRootContext(new GoogleMapsApiLoader(props));
+// Need a global singleton for all providers. So we don't re-import existing libraries
+const loader = new GoogleMapsApiLoader();
+
+export function useGoogleMapsApiProvider(props: GoogleMapsApiProviderProps) {
+	const apiProvider = GoogleMapsApiProvider.create(props, loader);
+	return setApiProviderContext(apiProvider);
 }
 
 export function useGoogleMapsMap(props: GoogleMapProps) {
-	const root = getRootContext();
-	return setMapContext(new GoogleMap(props, root));
+	const apiProvider = getApiProviderContext();
+	const map = GoogleMap.create(props, apiProvider);
+	return setMapContext(map);
 }
 
-export function useGoogleMapsMarkerLayer(props: MarkerLayerProps) {
+export function useGoogleMapsMarkerLayer(props: MapLayerProps) {
 	const map = getMapContext();
-	return setMarkerLayerContext(new MarkerLayer(props, map));
+	const markerLayer = MapMarkerLayer.create(props, map);
+	return setMarkerLayerContext(markerLayer);
 }
 
-export function useGoogleMapsPolygonLayer(props: PolygonLayerProps) {
+export function useGoogleMapsPolygonLayer(props: MapPolygonLayerProps) {
 	const map = getMapContext();
-	return setPolygonLayerContext(new PolygonLayer(props, map));
+	const polygonLayer = MapPolygonLayer.create(props, map);
+	return setPolygonLayerContext(polygonLayer);
 }
 
-export function useGoogleMapsMarker(props: MarkerProps) {
+export function useGoogleMapsMarker(props: MapMarkerProps) {
 	const map = getMapContext();
 	const markerLayer = getMarkerLayerContext();
-	return setMarkerContext(new Marker(props, map, markerLayer));
+	const marker = MapMarker.create(props, map, markerLayer);
+	return setMarkerContext(marker);
 }
 
-export function useGoogleMapsPolygon(props: PolygonProps) {
+export function useGoogleMapsPolygon(props: MapPolygonProps) {
 	const map = getMapContext();
 	const polygonLayer = getPolygonLayerContext();
+	const polygon = MapPolygon.create(props, map, polygonLayer);
 
-	return setPolygonContext(new Polygon(props, map, polygonLayer));
+	return setPolygonContext(polygon);
 }

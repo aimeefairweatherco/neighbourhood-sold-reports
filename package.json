@@ -51,7 +51,7 @@
 		"@tailwindcss/typography": "^0.5.15",
 		"@types/google.maps": "^3.58.1",
 		"dotenv": "^16.4.7",
-		"runed": "^0.16.1",
+		"runed": "^0.19.0",
 		"svelte-toolbelt": "^0.5.0",
 		"zod": "^3.23.8"
 	}

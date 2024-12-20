@@ -5,7 +5,7 @@
 
 	let {
 		geometry,
-		visible = $bindable(true),
+        
 		id = useId('polygon'),
 		children,
 		...restProps
@@ -13,10 +13,12 @@
 
 	const polygon = new google.maps.Data.Polygon(geometry);
 
-	useGoogleMapsPolygon({
+	const polygonState = useGoogleMapsPolygon({
 		id,
-		visible,
-		geometry: polygon
+
+		opts: {
+			geometry: polygon
+		}
 	});
 </script>
 

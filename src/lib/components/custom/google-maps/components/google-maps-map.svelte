@@ -4,7 +4,7 @@
 	import type { GoogleMapsMapProps } from '../types.js';
 
 	let {
-		id = useId('map'),
+		id,
 		opts = {
 			zoom: 12,
 			center: { lat: 43.653226, lng: -79.383184 },
@@ -16,19 +16,21 @@
 		...restProps
 	}: GoogleMapsMapProps = $props();
 
-	let mapState = $state<ReturnType<typeof useGoogleMapsMap> | null>(null);
+	let isMapMounted = $state(false);
 
-	function mount(mapDiv: HTMLDivElement) {
-		mapState = useGoogleMapsMap({
+	function mountMap(node: HTMLDivElement) {
+		useGoogleMapsMap({
+			mapDiv: node,
 			mapId: id || useId('map'),
-			mapDiv,
 			opts
+		}).then(() => {
+			isMapMounted = true;
 		});
 	}
 </script>
 
-<div use:mount {id} {...restProps}>
-	{#if mapState?.googleMap}
+<div use:mountMap {id} {...restProps}>
+	{#if isMapMounted}
 		{@render children?.()}
 	{/if}
 </div>

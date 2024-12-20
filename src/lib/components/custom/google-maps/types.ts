@@ -1,13 +1,22 @@
-import { type LoaderOptions } from '@googlemaps/js-api-loader';
+import { type Library, type LoaderOptions } from '@googlemaps/js-api-loader';
 import type { Expand } from 'svelte-toolbelt';
 import type { WithChildren, BitsDivAttributes } from 'bits-ui';
-import type { PolygonStyling } from './google-maps.svelte.js';
+import type {
+	PolygonStyling,
+	MapFeatureTypes,
+	MapMarker,
+	MapPolygon,
+	GoogleMapsApiProviderProps
+} from './google-maps.svelte.js';
 
 export type GoogleMapsRootProps = WithChildren<{
-	libraries: NonNullable<LoaderOptions['libraries']>;
-	apiKey?: LoaderOptions['apiKey'];
-	version?: LoaderOptions['version'];
-	region?: LoaderOptions['region'];
+	libraries: GoogleMapsApiProviderProps['libraries'];
+	apiKey: GoogleMapsApiProviderProps['apiKey'];
+	version?: GoogleMapsApiProviderProps['version'];
+	language?: GoogleMapsApiProviderProps['language'];
+	authReferrerPolicy?: GoogleMapsApiProviderProps['authReferrerPolicy'];
+	region?: GoogleMapsApiProviderProps['region'];
+	onError?: GoogleMapsApiProviderProps['onError'];
 }>;
 
 export type GoogleMapsMapProps = BitsDivAttributes &
@@ -17,20 +26,21 @@ export type GoogleMapsMapProps = BitsDivAttributes &
 
 type SharedProps = {
 	id?: string;
-	visible?: boolean;
 };
 
-type DataLayerProps = Expand<
+type DataLayerProps<T extends MapFeatureTypes> = Expand<
 	WithChildren<
 		SharedProps & {
 			name?: string;
+			visible?: boolean;
+			filter?: (feature: T) => boolean;
 		}
 	>
 >;
 
-export type MarkerLayerProps = DataLayerProps;
+export type MarkerLayerProps = DataLayerProps<MapMarker>;
 export type PolygonLayerProps = Expand<
-	DataLayerProps & { opts?: Omit<google.maps.Data.DataOptions, 'map'> } & {
+	DataLayerProps<MapPolygon> & { opts?: Omit<google.maps.Data.DataOptions, 'map'> } & {
 		defaultStyling?: PolygonStyling;
 		hoverStyling?: PolygonStyling;
 		clickStyling?: PolygonStyling;
@@ -40,7 +50,8 @@ export type PolygonLayerProps = Expand<
 export type GoogleMapsMarkerProps = Expand<
 	WithChildren<
 		SharedProps & {
-			opts?: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'>;
+			position: google.maps.marker.AdvancedMarkerElementOptions['position'];
+			opts?: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map' | 'position'>;
 		}
 	>
 >;
