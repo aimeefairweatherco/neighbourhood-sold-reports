@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { useGoogleMapsApiProvider } from '../google-maps.svelte.js';
-	import type { GoogleMapsRootProps } from '../types.js';
+	import { useApiProvider } from '../google-maps.svelte.js';
+	import type { ApiProviderProps } from '../types.js';
 	import { noop } from '$lib/internal/noop.js';
 
 	let {
@@ -12,9 +12,9 @@
 		language,
 		onError = noop,
 		children
-	}: GoogleMapsRootProps = $props();
+	}: ApiProviderProps = $props();
 
-	const apiProvider = useGoogleMapsApiProvider({
+	const apiProvider = useApiProvider({
 		apiKey,
 		region,
 		version,
@@ -25,10 +25,8 @@
 	});
 </script>
 
-{#await apiProvider}
-	<p>Loading google maps...</p>
-{:then}
+{#if apiProvider.isFullyLoaded}
 	{@render children?.()}
-{:catch error}
-	<p>Error loading google maps: {error.message}</p>
-{/await}
+{:else}
+	<p>Loading google maps...</p>
+{/if}

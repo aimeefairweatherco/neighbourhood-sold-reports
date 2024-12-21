@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { useGoogleMapsMap } from '../google-maps.svelte.js';
+	import { useMap } from '../google-maps.svelte.js';
 	import { useId } from '$lib/internal/use-id';
-	import type { GoogleMapsMapProps } from '../types.js';
+	import type { MapProps } from '../types.js';
 
 	let {
 		id,
@@ -14,18 +14,18 @@
 		},
 		children,
 		...restProps
-	}: GoogleMapsMapProps = $props();
+	}: MapProps = $props();
 
 	let isMapMounted = $state(false);
 
 	function mountMap(node: HTMLDivElement) {
-		useGoogleMapsMap({
+		useMap({
 			mapDiv: node,
 			mapId: id || useId('map'),
 			opts
-		}).then(() => {
-			isMapMounted = true;
 		});
+
+		isMapMounted = true;
 	}
 </script>
 

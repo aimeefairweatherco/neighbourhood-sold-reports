@@ -11,10 +11,13 @@
 
 	import * as Maps from '$lib/components/custom/google-maps/index.js';
 	import { browser } from '$app/environment';
+	import { z } from 'zod';
 
 	let { data }: { data: PageData } = $props();
 
 	const { neighbourhoods, regions } = data;
+
+	console.log(neighbourhoods.slice(0, 5));
 
 	function filterNeighbourhoods(id: number) {
 		return neighbourhoods.filter((neighbourhood) => neighbourhood.region_id === id);
@@ -24,36 +27,49 @@
 		position: { lat: 43.730091, lng: -79.399199 }
 	};
 
+	const polygonSchema = z.object({
+		region_id: z.number(),
+		name_pretty: z.string(),
+		name_code: z.string()
+	});
+
 	let markerVisiblity = $state(false);
-	let polygonVisiblity = $state(false);
+	let polygonVisiblity = $state(true);
 
 	function toggleMarker() {
 		markerVisiblity = !markerVisiblity;
 	}
 
+	let applyFilter = $state(false);
+
 	function togglePolygon() {
 		polygonVisiblity = !polygonVisiblity;
+	}
+
+	function toggleFilter() {
+		applyFilter = !applyFilter;
 	}
 </script>
 
 <div class="w-100[dvw] h-[100dvh] overflow-hidden">
 	<button onclick={toggleMarker}>Toggle Marker Visiblity {markerVisiblity}</button>
 	<button onclick={togglePolygon}>Toggle Polygon Visiblity {polygonVisiblity}</button>
-	<Maps.ApiProvider
-		apiKey={PUBLIC_GOOGLE_MAPS_API_KEY}
-		libraries={['maps', 'marker']}
-		onError={(error) => {
-			console.error('Custom error', error);
-		}}
-	>
+	<button onclick={toggleFilter}>Toggle Polygon Filter {applyFilter}</button>
+	<Maps.ApiProvider apiKey={PUBLIC_GOOGLE_MAPS_API_KEY} libraries={['maps', 'marker']}>
 		<Maps.Map class="h-full w-full">
-			<!--<Maps.MarkerLayer visible={markerVisiblity}>
+			<Maps.MarkerLayer visible={markerVisiblity}>
 				<Maps.Marker position={markerOpts.position}></Maps.Marker>
 			</Maps.MarkerLayer>
 			{#each regions as region}
 				<Maps.PolygonLayer
 					visible={polygonVisiblity}
 					name={region.name}
+					attributeSchema={polygonSchema}
+					filter={applyFilter
+						? (polygon) => {
+								return polygon.attributes.name_pretty.includes('Toronto');
+							}
+						: undefined}
 					defaultStyling={{
 						fillColor: region.color,
 						fillOpacity: 0.3,
@@ -62,11 +78,15 @@
 						strokeOpacity: 1
 					}}
 				>
-					{#each filterNeighbourhoods(region.id) as neighbourhood}
-						<Maps.Polygon geometry={[neighbourhood.polygon_data]}></Maps.Polygon>
-					{/each}
+					{#snippet children({ attributeSchema })}
+						{#each filterNeighbourhoods(region.id) as neighbourhood}
+							<Maps.Polygon geometry={[neighbourhood.polygon_data]} {attributeSchema}
+							></Maps.Polygon>
+						{/each}
+					{/snippet}
+					<!---->
 				</Maps.PolygonLayer>
-			{/each}-->
+			{/each}
 		</Maps.Map>
 	</Maps.ApiProvider>
 </div>

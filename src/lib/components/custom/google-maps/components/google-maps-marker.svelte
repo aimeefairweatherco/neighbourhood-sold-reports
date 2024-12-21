@@ -1,18 +1,30 @@
-<script lang="ts">
-	import { useGoogleMapsMarker } from '../google-maps.svelte.js';
+<script lang="ts" module>
+	import type { ZodObject } from 'zod';
+	type T = unknown;
+</script>
+
+<script lang="ts" generics="T extends ZodObject<any>">
+	import { useMarker } from '../google-maps.svelte.js';
 	import { useId } from '$lib/internal/use-id';
-	import type { GoogleMapsMarkerProps } from '../types.js';
+	import type { MarkerProps } from '../types.js';
+	import { z } from 'zod';
 
 	let {
 		opts,
 		position = $bindable(null),
-
+		attributeSchema = z.object({}) as T,
+		attributes = {},
 		id = useId('marker'),
 		children,
 		...restProps
-	}: GoogleMapsMarkerProps = $props();
+	}: MarkerProps<T> = $props();
 
-	const markerState = useGoogleMapsMarker({ id, markerOpts: { position, ...opts } });
+	const markerState = useMarker({
+		id,
+		attributes,
+		attributeSchema,
+		markerOpts: { position, ...opts }
+	});
 </script>
 
 {@render children?.()}

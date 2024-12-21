@@ -1,29 +1,39 @@
 import { createContext } from '$lib/internal/create-context.js';
+import { getContext, setContext } from 'svelte';
 import { FiniteStateMachine } from 'runed';
 import { SvelteMap } from 'svelte/reactivity';
 import { GoogleMapsApiLoader, type GoogleMapsApiLoaderProps } from './api-loader.svelte.js';
 import type { Expand } from 'svelte-toolbelt';
+import type { ZodObject, ZodType, infer as zInfer } from 'zod';
+import { ZodError } from 'zod';
+import { useId } from '$lib/internal/use-id.js';
 
-export type GoogleMapsApiProviderProps = Expand<
+export type ApiProviderStateProps = Expand<
 	GoogleMapsApiLoaderProps & {
 		onError?: (error: Error) => void;
 	}
 >;
 
-export class GoogleMapsApiProvider {
+export class ApiProviderState {
 	#loader: GoogleMapsApiLoader;
-	#requestedLibraries = $state<GoogleMapsApiLoaderProps['libraries']>([]);
+	#requestedLibraries = $state<ApiProviderStateProps['libraries']>([]);
+	#onError: ApiProviderStateProps['onError'];
 
-	private constructor(props: GoogleMapsApiProviderProps, loader: GoogleMapsApiLoader) {
+	constructor(props: ApiProviderStateProps, loader: GoogleMapsApiLoader) {
 		this.#loader = loader;
-		const requestedLibraries = new Set(props.libraries);
-		this.#requestedLibraries.push(...requestedLibraries);
-	}
+		this.#onError = props.onError;
 
-	static async create(props: GoogleMapsApiProviderProps, loader: GoogleMapsApiLoader) {
-		loader.init(props);
-		await loader.loadLibraries(props.libraries);
-		return new GoogleMapsApiProvider(props, loader);
+		try {
+			this.#loader.init(props);
+			const requestedLibraries = new Set(props.libraries);
+			this.#requestedLibraries.push(...requestedLibraries);
+
+			this.#loader.loadLibraries(this.#requestedLibraries).catch((err) => {
+				this.#handleError(err);
+			});
+		} catch (err) {
+			this.#handleError(err);
+		}
 	}
 
 	get apis() {
@@ -33,11 +43,25 @@ export class GoogleMapsApiProvider {
 	get loadedLibraries() {
 		return this.#loader.loadedLibraries;
 	}
+
+	isFullyLoaded = $derived(
+		this.#requestedLibraries.every((lib) => this.loadedLibraries.includes(lib))
+	);
+
+	#handleError(err: unknown) {
+		const error = err instanceof Error ? err : new Error(String(err));
+		if (this.#onError) {
+			this.#onError(error);
+			return;
+		}
+
+		throw err;
+	}
 }
 
-type GoogleMapStates = 'idle' | 'zooming' | 'panning';
-type GoogleMapEvents = 'toggleZooming' | 'togglePanning';
-const googleMapState = new FiniteStateMachine<GoogleMapStates, GoogleMapEvents>('idle', {
+type MapStates = 'idle' | 'zooming' | 'panning';
+type MapEvents = 'toggleZooming' | 'togglePanning';
+const mapFSM = new FiniteStateMachine<MapStates, MapEvents>('idle', {
 	idle: {
 		toggleZooming: 'zooming',
 		togglePanning: 'panning'
@@ -54,55 +78,28 @@ const googleMapState = new FiniteStateMachine<GoogleMapStates, GoogleMapEvents>(
 
 type LatLng = google.maps.LatLng | google.maps.LatLngLiteral;
 
-type GoogleMapProps = {
+type MapStateProps = {
 	mapId: string;
 	mapDiv: HTMLDivElement;
 	opts?: Omit<google.maps.MapOptions, 'mapId'>;
 };
 
-type DataLayer = MapPolygonLayer | MapMarkerLayer;
+type DataLayer<T extends ZodObject<any>> = PolygonLayerState<T> | MarkerLayerState<T>;
 
-export class GoogleMap {
-	#apiProvider: GoogleMapsApiProvider;
-	#id: GoogleMapProps['mapId'];
-	#mapDiv: GoogleMapProps['mapDiv'];
+export class MapState {
+	#apiProvider: ApiProviderState;
+	#id: MapStateProps['mapId'];
+	#mapDiv: MapStateProps['mapDiv'];
 	#googleMap: google.maps.Map;
-	#state = googleMapState;
-	#dataLayers = new SvelteMap<string, DataLayer>();
+	#state = mapFSM;
+	#dataLayers = new SvelteMap<string, DataLayer<any>>();
 
-	private constructor(
-		props: GoogleMapProps,
-		apiProvider: GoogleMapsApiProvider,
-		googleMapInstance: google.maps.Map
-	) {
+	constructor(props: MapStateProps, apiProvider: ApiProviderState) {
 		this.#apiProvider = apiProvider;
 		this.#id = props.mapId;
 		this.#mapDiv = props.mapDiv;
-		this.#googleMap = googleMapInstance;
-	}
 
-	/**
-	 * Static factory method to create a fully-initialized GoogleMap instance.
-	 * Assumes `apiProvider` is already resolved and `google.maps` is ready.
-	 */
-	static async create(
-		props: GoogleMapProps,
-		apiProvider: Promise<GoogleMapsApiProvider>
-	): Promise<GoogleMap> {
-		const _apiProvider = await apiProvider;
-		const googleMapInstance = new google.maps.Map(props.mapDiv, {
-			mapId: props.mapId,
-			...props.opts
-		});
-		return new GoogleMap(props, _apiProvider, googleMapInstance);
-	}
-
-	get id() {
-		return this.#id;
-	}
-
-	get mapDiv() {
-		return this.#mapDiv;
+		this.#googleMap = new google.maps.Map(this.#mapDiv, { mapId: this.#id, ...props.opts });
 	}
 
 	get googleMap() {
@@ -121,7 +118,7 @@ export class GoogleMap {
 		return this.#apiProvider;
 	}
 
-	addDataLayer(data: DataLayer) {
+	addDataLayer(data: DataLayer<any>) {
 		this.#dataLayers.set(data.id, data);
 	}
 
@@ -219,34 +216,42 @@ export class GoogleMap {
 	};
 }
 
-type MapFeatureProps = {
+export type MapFeatureTypes = 'polygon' | 'marker';
+
+export type MapFeatureStateTypes<
+	T extends MapFeatureTypes,
+	S extends ZodObject<any>
+> = T extends 'polygon'
+	? PolygonFeatureState<S>
+	: T extends 'marker'
+		? MarkerFeatureState<S>
+		: never;
+
+type BaseLayerStateProps<T extends MapFeatureTypes, S extends ZodObject<any>> = {
 	id: string;
+	visible: boolean;
+	name: string;
+	attributeSchema: S;
 };
 
-export type MapFeatureTypes = MapMarker | MapPolygon;
+abstract class BaseLayerState<T extends MapFeatureTypes, S extends ZodObject<any>> {
+	abstract type: MapFeatureTypes;
+	#apiProvider: ApiProviderState;
+	#id: BaseLayerStateProps<T, S>['id'];
+	name: BaseLayerStateProps<T, S>['name'];
+	#visible = $state<BaseLayerStateProps<T, S>['visible']>(false);
+	#filter = $state<((feature: MapFeatureStateTypes<T, S>) => boolean) | null>(null);
+	#map: MapState;
+	protected features = new SvelteMap<string, MapFeatureStateTypes<T, S>>();
+	readonly attributeSchema: BaseLayerStateProps<T, S>['attributeSchema'];
 
-type MapLayerProps = Expand<
-	MapFeatureProps & {
-		visible: boolean;
-		name: string;
-	}
->;
-
-abstract class MapLayer<T extends MapFeatureTypes> {
-	#apiProvider: GoogleMapsApiProvider;
-	#id: MapLayerProps['id'];
-	name: MapLayerProps['name'];
-	#visible = $state<MapLayerProps['visible']>(false);
-	#filter = $state<((feature: T) => boolean) | null>(null);
-	#map: GoogleMap;
-	protected features = new SvelteMap<string, T>();
-
-	constructor(props: MapLayerProps, map: GoogleMap) {
+	constructor(props: BaseLayerStateProps<T, S>, map: MapState) {
 		this.#id = props.id;
 		this.name = props.name;
 		this.#map = map;
 		this.#apiProvider = map.apiProvider;
 		this.#visible = props.visible;
+		this.attributeSchema = props.attributeSchema;
 	}
 
 	get id() {
@@ -263,7 +268,7 @@ abstract class MapLayer<T extends MapFeatureTypes> {
 
 	protected abstract hideAll(): void;
 	protected abstract showAll(): void;
-	protected abstract applyFilter(filter: (feature: T) => boolean): void;
+	protected abstract applyFilter(filter: (feature: MapFeatureStateTypes<T, S>) => boolean): void;
 
 	set visible(value: boolean) {
 		this.#visible = value;
@@ -282,7 +287,7 @@ abstract class MapLayer<T extends MapFeatureTypes> {
 		return this.#visible;
 	}
 
-	setFilter(filterFn: ((feature: T) => boolean) | null) {
+	setFilter(filterFn: ((feature: MapFeatureStateTypes<T, S>) => boolean) | null) {
 		this.#filter = filterFn;
 		if (this.visible && filterFn) {
 			this.applyFilter(filterFn);
@@ -292,7 +297,7 @@ abstract class MapLayer<T extends MapFeatureTypes> {
 		}
 	}
 
-	addFeature(feature: T) {
+	addFeature(feature: MapFeatureStateTypes<T, S>) {
 		this.features.set(feature.id, feature);
 		if (this.#visible) {
 			this.showAll();
@@ -315,15 +320,14 @@ abstract class MapLayer<T extends MapFeatureTypes> {
 	}
 }
 
-class MapMarkerLayer extends MapLayer<MapMarker> {
-	private constructor(props: MapLayerProps, map: GoogleMap) {
-		super(props, map);
-		this.map.addDataLayer(this);
-	}
+type MarkerLayerStateProps<T extends ZodObject<any>> = Expand<BaseLayerStateProps<'marker', T>>;
 
-	static async create(props: MapLayerProps, map: Promise<GoogleMap>): Promise<MapMarkerLayer> {
-		const _map = await map;
-		return new MapMarkerLayer(props, _map);
+class MarkerLayerState<T extends ZodObject<any>> extends BaseLayerState<'marker', T> {
+	readonly type: MapFeatureTypes = 'marker';
+	constructor(props: MarkerLayerStateProps<T>, map: MapState) {
+		super(props, map);
+
+		this.map.addDataLayer(this);
 	}
 
 	protected hideAll() {
@@ -334,7 +338,7 @@ class MapMarkerLayer extends MapLayer<MapMarker> {
 		this.features.forEach((marker) => (marker.googleMarker.map = this.map.googleMap));
 	}
 
-	protected applyFilter(filter: (marker: MapMarker) => boolean) {
+	protected applyFilter(filter: (marker: MarkerFeatureState<T>) => boolean) {
 		this.features.forEach((marker) => {
 			marker.googleMarker.map = filter(marker) ? this.map.googleMap : null;
 		});
@@ -385,8 +389,8 @@ export type PolygonStyling = Partial<
 	>
 >;
 
-type MapPolygonLayerProps = Expand<
-	MapLayerProps & {
+type PolygonLayerStateProps<S extends ZodObject<any>> = Expand<
+	BaseLayerStateProps<'polygon', S> & {
 		opts?: Omit<google.maps.Data.DataOptions, 'map'>;
 		styling: {
 			defaultStyling: PolygonStyling;
@@ -396,11 +400,12 @@ type MapPolygonLayerProps = Expand<
 	}
 >;
 
-class MapPolygonLayer extends MapLayer<MapPolygon> {
+class PolygonLayerState<S extends ZodObject<any>> extends BaseLayerState<'polygon', S> {
+	readonly type: MapFeatureTypes = 'polygon';
 	#googleLayer: google.maps.Data;
-	#styling: MapPolygonLayerProps['styling'];
+	#styling: PolygonLayerStateProps<S>['styling'];
 
-	private constructor(props: MapPolygonLayerProps, map: GoogleMap) {
+	constructor(props: PolygonLayerStateProps<S>, map: MapState) {
 		const { opts, styling, ...superProps } = props;
 		super(superProps, map);
 
@@ -412,23 +417,16 @@ class MapPolygonLayer extends MapLayer<MapPolygon> {
 		this.map.addDataLayer(this);
 	}
 
-	static async create(
-		props: MapPolygonLayerProps,
-		map: Promise<GoogleMap>
-	): Promise<MapPolygonLayer> {
-		const _map = await map;
-		return new MapPolygonLayer(props, _map);
-	}
-
 	protected hideAll() {
 		this.#googleLayer.setMap(null);
 	}
 
 	protected showAll() {
 		this.#googleLayer.setMap(this.map.googleMap);
+		this.#googleLayer.revertStyle();
 	}
 
-	protected applyFilter(filter: (polygon: MapPolygon) => boolean) {
+	protected applyFilter(filter: (polygon: PolygonFeatureState<S>) => boolean) {
 		this.features.forEach((polygon) => {
 			this.#googleLayer.overrideStyle(polygon.googlePolygon, {
 				visible: filter(polygon)
@@ -471,8 +469,9 @@ class MapPolygonLayer extends MapLayer<MapPolygon> {
 		});
 
 		layer.addListener('mouseover', function (event: google.maps.Data.MouseEvent) {
-			layer.revertStyle();
-			layer.overrideStyle(event.feature, dynamicStyler('hover'));
+			const { feature } = event;
+			layer.revertStyle(feature);
+			layer.overrideStyle(feature, dynamicStyler('hover'));
 		});
 
 		layer.addListener('mouseout', function () {
@@ -486,7 +485,7 @@ class MapPolygonLayer extends MapLayer<MapPolygon> {
 	}
 
 	// Need to override because the polygon needs to also be added to the google.map.Data class features
-	addFeature(polygon: MapPolygon) {
+	addFeature(polygon: PolygonFeatureState<S>) {
 		super.addFeature(polygon);
 		this.#googleLayer.add(polygon.googlePolygon);
 	}
@@ -500,18 +499,36 @@ class MapPolygonLayer extends MapLayer<MapPolygon> {
 	}
 }
 
-type MapLayerTypes = MapMarkerLayer | MapPolygonLayer;
-abstract class MapFeature<T extends MapLayerTypes> {
-	#id: MapFeatureProps['id'];
-	#map: GoogleMap;
-	#layer: T;
-	#apiProvider: GoogleMapsApiProvider;
+type LayerStateTypes<S extends ZodObject<any>> = MarkerLayerState<S> | PolygonLayerState<S>;
 
-	constructor(props: MapFeatureProps, map: GoogleMap, layer: T) {
+type BaseFeatureStateProps<T extends ZodObject<any>> = {
+	id: string;
+	attributeSchema: T;
+	attributes: zInfer<T>;
+};
+
+abstract class BaseFeatureState<T extends ZodObject<any>, L extends LayerStateTypes<T>> {
+	#id: BaseFeatureStateProps<T>['id'];
+	#map: MapState;
+	#layer: L;
+	#apiProvider: ApiProviderState;
+	#attributes = $state<BaseFeatureStateProps<T>['attributes']>({});
+
+	constructor(props: BaseFeatureStateProps<T>, map: MapState, layer: L) {
 		this.#id = props.id;
 		this.#map = map;
 		this.#layer = layer;
 		this.#apiProvider = map.apiProvider;
+		try {
+			this.#attributes = props.attributeSchema.parse(props.attributes);
+		} catch (e) {
+			if (e instanceof ZodError) {
+				const layerType = console.error(
+					`An attribute schema was set for the ${this.#layer.type.toUpperCase()} layer '${this.#layer.name}' but the attributes didn't match the schema.`
+				);
+				throw e.errors;
+			}
+		}
 	}
 
 	abstract delete(): void;
@@ -531,17 +548,27 @@ abstract class MapFeature<T extends MapLayerTypes> {
 	get apiProvider() {
 		return this.#apiProvider;
 	}
+
+	get attributes() {
+		return this.#attributes;
+	}
 }
 
-type MapMarkerProps = Expand<
-	MapFeatureProps & { markerOpts: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'> }
+type MarkerFeatureStateProps<T extends ZodObject<any>> = Expand<
+	BaseFeatureStateProps<T> & {
+		markerOpts: Omit<google.maps.marker.AdvancedMarkerElementOptions, 'map'>;
+	}
 >;
 
-export class MapMarker extends MapFeature<MapMarkerLayer> {
+export class MarkerFeatureState<T extends ZodObject<any>> extends BaseFeatureState<
+	T,
+	MarkerLayerState<T>
+> {
 	#marker: google.maps.marker.AdvancedMarkerElement;
 
-	private constructor(props: MapMarkerProps, map: GoogleMap, layer: MapMarkerLayer) {
+	constructor(props: MarkerFeatureStateProps<T>, map: MapState, layer: MarkerLayerState<T>) {
 		const { markerOpts, ...superProps } = props;
+
 		super(superProps, map, layer);
 
 		this.#marker = new google.maps.marker.AdvancedMarkerElement({
@@ -550,15 +577,6 @@ export class MapMarker extends MapFeature<MapMarkerLayer> {
 		});
 
 		this.layer.addFeature(this);
-	}
-
-	static async create(
-		props: MapMarkerProps,
-		map: Promise<GoogleMap>,
-		layer: Promise<MapMarkerLayer>
-	): Promise<MapMarker> {
-		const [_map, _layer] = await Promise.all([map, layer]);
-		return new MapMarker(props, _map, _layer);
 	}
 
 	delete() {
@@ -570,17 +588,20 @@ export class MapMarker extends MapFeature<MapMarkerLayer> {
 	}
 }
 
-type MapPolygonProps = Expand<
-	MapFeatureProps & {
+type PolygonFeatureStateProps<T extends ZodObject<any>> = Expand<
+	BaseFeatureStateProps<T> & {
 		opts: {
 			geometry: google.maps.Data.Polygon;
 		};
 	}
 >;
-export class MapPolygon extends MapFeature<MapPolygonLayer> {
+export class PolygonFeatureState<T extends ZodObject<any>> extends BaseFeatureState<
+	T,
+	PolygonLayerState<T>
+> {
 	#polygon: google.maps.Data.Feature;
 
-	private constructor(props: MapPolygonProps, map: GoogleMap, layer: MapPolygonLayer) {
+	constructor(props: PolygonFeatureStateProps<T>, map: MapState, layer: PolygonLayerState<T>) {
 		const { opts, ...superProps } = props;
 		super(superProps, map, layer);
 
@@ -590,15 +611,6 @@ export class MapPolygon extends MapFeature<MapPolygonLayer> {
 		});
 
 		this.layer.addFeature(this);
-	}
-
-	static async create(
-		props: MapPolygonProps,
-		map: Promise<GoogleMap>,
-		layer: Promise<MapPolygonLayer>
-	): Promise<MapPolygon> {
-		const [_map, _layer] = await Promise.all([map, layer]);
-		return new MapPolygon(props, _map, _layer);
 	}
 
 	delete() {
@@ -676,58 +688,86 @@ export class GoogleMapsCustomControlState {}
 export class GoogleMapsAutoCompleteState {}
 */
 
-const [setApiProviderContext, getApiProviderContext] =
-	createContext<Promise<GoogleMapsApiProvider>>('Maps.ApiProvider');
-
-const [setMapContext, getMapContext] = createContext<Promise<GoogleMap>>('Maps.Map');
-
-const [setMarkerLayerContext, getMarkerLayerContext] =
-	createContext<Promise<MapMarkerLayer>>('Maps.MarkerLayer');
-
-const [setPolygonLayerContext, getPolygonLayerContext] =
-	createContext<Promise<MapPolygonLayer>>('Maps.PolygonLayer');
-
-const [setMarkerContext, getMarkerContext] = createContext<Promise<MapMarker>>('Maps.Marker');
-
-const [setPolygonContext, getPolygonContext] = createContext<Promise<MapPolygon>>('Maps.Polygon');
+const API_PROVIDER_CTX = Symbol.for('Maps.ApiProvider');
+const MAP_CTX = Symbol.for('Maps.Map');
+const MARKER_LAYER_CTX = Symbol.for('Maps.MarkerLayer');
+const POLYGON_LAYER_CTX = Symbol.for('Maps.PolygonLayer');
+const MARKER_CTX = Symbol.for('Maps.Marker');
+const POLYGON_CTX = Symbol.for('Maps.Polygon');
 
 // Need a global singleton for all providers. So we don't re-import existing libraries
 const loader = new GoogleMapsApiLoader();
 
-export function useGoogleMapsApiProvider(props: GoogleMapsApiProviderProps) {
-	const apiProvider = GoogleMapsApiProvider.create(props, loader);
-	return setApiProviderContext(apiProvider);
+function contextError(thisComponent: Symbol, missingComponent: Symbol) {
+	return new Error(
+		`Missing context dependency: '${thisComponent.toString()}' must be used within a '${missingComponent.toString()}' component.`
+	);
 }
 
-export function useGoogleMapsMap(props: GoogleMapProps) {
-	const apiProvider = getApiProviderContext();
-	const map = GoogleMap.create(props, apiProvider);
-	return setMapContext(map);
+export function useApiProvider(props: ApiProviderStateProps) {
+	return setContext(API_PROVIDER_CTX, new ApiProviderState(props, loader));
 }
 
-export function useGoogleMapsMarkerLayer(props: MapLayerProps) {
+function getApiProvider() {
+	return getContext<ApiProviderState>(API_PROVIDER_CTX);
+}
+
+export function useMap(props: MapStateProps) {
+	const apiProvider = getApiProvider();
+	if (!apiProvider) throw contextError(MAP_CTX, API_PROVIDER_CTX);
+	return setContext(MAP_CTX, new MapState(props, apiProvider));
+}
+
+function getMapContext() {
+	return getContext<MapState>(MAP_CTX);
+}
+
+export function useMarkerLayer<T extends ZodObject<any>>(props: MarkerLayerStateProps<T>) {
 	const map = getMapContext();
-	const markerLayer = MapMarkerLayer.create(props, map);
-	return setMarkerLayerContext(markerLayer);
+	if (!map) throw contextError(MARKER_LAYER_CTX, MAP_CTX);
+	return setContext<MarkerLayerState<T>>(MARKER_LAYER_CTX, new MarkerLayerState(props, map));
 }
 
-export function useGoogleMapsPolygonLayer(props: MapPolygonLayerProps) {
-	const map = getMapContext();
-	const polygonLayer = MapPolygonLayer.create(props, map);
-	return setPolygonLayerContext(polygonLayer);
+function getMarkerLayerContext<T extends ZodObject<any>>() {
+	return getContext<MarkerLayerState<T>>(MARKER_LAYER_CTX);
 }
 
-export function useGoogleMapsMarker(props: MapMarkerProps) {
+export function usePolygonLayer<T extends ZodObject<any>>(props: PolygonLayerStateProps<T>) {
 	const map = getMapContext();
-	const markerLayer = getMarkerLayerContext();
-	const marker = MapMarker.create(props, map, markerLayer);
-	return setMarkerContext(marker);
+	if (!map) throw contextError(POLYGON_LAYER_CTX, MAP_CTX);
+	return setContext<PolygonLayerState<T>>(POLYGON_LAYER_CTX, new PolygonLayerState(props, map));
 }
 
-export function useGoogleMapsPolygon(props: MapPolygonProps) {
-	const map = getMapContext();
-	const polygonLayer = getPolygonLayerContext();
-	const polygon = MapPolygon.create(props, map, polygonLayer);
+function getPolygonLayerContext<T extends ZodObject<any>>() {
+	return getContext<PolygonLayerState<T>>(POLYGON_LAYER_CTX);
+}
 
-	return setPolygonContext(polygon);
+export function useMarker<T extends ZodObject<any>>(props: MarkerFeatureStateProps<T>) {
+	const map = getMapContext();
+	if (!map) throw contextError(MARKER_CTX, MAP_CTX);
+	const markerLayer = getMarkerLayerContext<T>();
+	if (!markerLayer) throw contextError(MARKER_CTX, MARKER_LAYER_CTX);
+	return setContext<MarkerFeatureState<T>>(
+		MARKER_CTX,
+		new MarkerFeatureState(props, map, markerLayer)
+	);
+}
+
+function getMarkerContext<T extends ZodObject<any>>() {
+	return getContext<MarkerFeatureState<T>>(MARKER_CTX);
+}
+
+export function usePolygon<T extends ZodObject<any>>(props: PolygonFeatureStateProps<T>) {
+	const map = getMapContext();
+	if (!map) throw contextError(POLYGON_CTX, MAP_CTX);
+	const polygonLayer = getPolygonLayerContext<T>();
+	if (!polygonLayer) throw contextError(POLYGON_CTX, POLYGON_LAYER_CTX);
+	return setContext<PolygonFeatureState<T>>(
+		POLYGON_CTX,
+		new PolygonFeatureState(props, map, polygonLayer)
+	);
+}
+
+function getPolygonContext<T extends ZodObject<any>>() {
+	return getContext<PolygonFeatureState<T>>(POLYGON_CTX);
 }

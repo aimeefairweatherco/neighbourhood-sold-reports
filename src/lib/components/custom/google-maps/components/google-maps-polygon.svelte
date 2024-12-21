@@ -1,21 +1,29 @@
-<script lang="ts">
-	import { useGoogleMapsPolygon } from '../google-maps.svelte.js';
+<script lang="ts" module>
+	import type { ZodObject } from 'zod';
+	type T = unknown;
+</script>
+
+<script lang="ts" generics="T extends ZodObject<any>">
+	import { usePolygon } from '../google-maps.svelte.js';
 	import { useId } from '$lib/internal/use-id';
-	import type { GoogleMapsPolygonProps } from '../types.js';
+	import type { PolygonProps } from '../types.js';
+	import { z } from 'zod';
 
 	let {
-		geometry,
-        
 		id = useId('polygon'),
+		geometry,
+		attributes = {},
+		attributeSchema = z.object({}) as T,
 		children,
 		...restProps
-	}: GoogleMapsPolygonProps = $props();
+	}: PolygonProps<T> = $props();
 
 	const polygon = new google.maps.Data.Polygon(geometry);
 
-	const polygonState = useGoogleMapsPolygon({
+	const polygonState = usePolygon({
 		id,
-
+		attributes,
+		attributeSchema,
 		opts: {
 			geometry: polygon
 		}
